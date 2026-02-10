@@ -1,0 +1,29 @@
+name: "StopChat-Terminal"
+base_url: "http://localhost:8000"
+openapi_url: "/openapi.json"
+
+state:
+  storage: ".stopchat-session.json"
+  auto_inject:
+    - "session_id"
+    - "user_id"
+  defaults:
+    monster: "betty"
+    language: "en"
+
+commands:
+  /init:
+    operationId: "init_chat_api_v1_chat_init_post"
+    description: "Initialize a new session"
+    mapping:
+      user_id: "$1"
+    after_call:
+      save_to_state:
+        session_id: "json:session_id"
+        user_id: "json:user_id"
+
+  /send:
+    operationId: "send_message_api_v1_chat_post"
+    description: "Send a message"
+    mapping:
+      message: "$1"
