@@ -5,7 +5,21 @@ from typing import Dict, Any, List, Optional, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.markdown import Markdown
+from rich.tree import Tree
+from rich.live import Live
+from rich.console import Console, Group
+from rich.style import Style
+import sys
+import time
+
+# For key capture
+try:
+    from prompt_toolkit.input import create_input
+    from prompt_toolkit.keys import Keys
+except ImportError:
+    pass
+
+from prompt_toolkit import PromptSession
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
@@ -38,6 +52,7 @@ class OAIShellCompleter(Completer):
                 '/exit': 'Exit shell',
                 '/state': 'Show current state',
                 '/operations': 'List available API operations',
+                '/operations-tui': 'Interactive API explorer',
                 '/call': 'Call raw operation'
             }
             
@@ -55,6 +70,24 @@ class OAIShellCompleter(Completer):
             for op_id in self.engine.operations.keys():
                 if op_id.lower().startswith(prefix.lower()):
                     yield Completion(op_id, start_position=-len(prefix))
+
+        # Complete parameter flags after /call <op_id>
+        elif text.startswith('/call ') and len(words) >= 2:
+            op_id = words[1]
+            if op_id in self.engine.operations:
+                current_word = words[-1] if text.endswith(words[-1]) else ""
+                if current_word.startswith('--'):
+                    prefix = current_word[2:]
+                    all_params = self.engine.get_params_for_operation(op_id)
+                    
+                    for p in all_params:
+                        name = p['name']
+                        if name.lower().startswith(prefix.lower()):
+                            yield Completion(f"--{name}", start_position=-len(current_word), display_meta=f"({p['in']}) {p['type']}")
+                    
+                    # Special flags
+                    if "stream".startswith(prefix.lower()):
+                        yield Completion("--stream", start_position=-len(current_word))
 
 class ShellRunner:
     def __init__(self, config: ShellConfig, engine: OpenAIEngine):
@@ -97,6 +130,8 @@ class ShellRunner:
                 self.show_help()
             elif cmd == "/operations":
                 self.show_operations()
+            elif cmd == "/operations-tui":
+                self.show_operations_tui()
             elif cmd == "/state":
                 self.show_state()
             elif cmd == "/call":
@@ -115,6 +150,109 @@ class ShellRunner:
         for k, v in self.state.to_dict().items():
             table.add_row(k, str(v))
         console.print(table)
+
+    def show_operations_tui(self):
+        """Interactive hierarchical view of operations."""
+        tag_groups: Dict[str, Dict[str, List[Tuple[str, Dict[str, Any]]]]] = {}
+        for op_id, op in self.engine.operations.items():
+            tags = op["raw"].get("tags", ["default"])
+            for tag in tags:
+                if tag not in tag_groups: tag_groups[tag] = {}
+                path = op["path"]
+                if path not in tag_groups[tag]: tag_groups[tag][path] = []
+                tag_groups[tag][path].append((op_id, op))
+
+        # Build a stable structured list for state management
+        # Each item is a reference that we can toggle 'expanded' on
+        structured = []
+        for tag in sorted(tag_groups.keys()):
+            tag_item = {"type": "tag", "name": tag, "expanded": True}
+            structured.append(tag_item)
+            paths = tag_groups[tag]
+            for path in sorted(paths.keys()):
+                path_item = {
+                    "type": "path", 
+                    "name": path, 
+                    "tag": tag, 
+                    "expanded": False, 
+                    "ops": sorted(paths[path], key=lambda x: x[0])
+                }
+                structured.append(path_item)
+
+        selected_idx = 0
+
+        def get_visible_items():
+            visible = []
+            for item in structured:
+                if item["type"] == "tag":
+                    visible.append(item)
+                    if not item["expanded"]:
+                        continue
+                elif item["type"] == "path":
+                    # Only show if parent tag is expanded (handled by loop logic)
+                    visible.append(item)
+                    if item["expanded"]:
+                        for op_id, op_data in item["ops"]:
+                            visible.append({"type": "op", "name": op_id, "op": op_data})
+            return visible
+
+        try:
+            input_stream = create_input()
+            # We must use raw_mode to capture keys without them being echoed
+            with input_stream.raw_mode():
+                # We hide the cursor for a better TUI experience
+                console.show_cursor(False)
+                with Live(auto_refresh=False, console=console, transient=True) as live:
+                    while True:
+                        visible_items = get_visible_items()
+                        selected_idx = max(0, min(selected_idx, len(visible_items) - 1))
+                        
+                        # Build the renderable tree
+                        tree = Tree(f"[bold magenta]{self.config.name} API Explorer[/bold magenta] [dim](↑/↓ navigate, Space/Enter toggle, 'q' back)[/dim]")
+                        for idx, item in enumerate(visible_items):
+                            is_sel = (idx == selected_idx)
+                            prefix = "> " if is_sel else "  "
+                            style = "reverse" if is_sel else ""
+
+                            if item["type"] == "tag":
+                                icon = "▼" if item["expanded"] else "▶"
+                                tree.add(f"{prefix}[bold cyan]{icon} {item['name']}[/bold cyan]", style=style)
+                            elif item["type"] == "path":
+                                icon = "▼" if item["expanded"] else "▶"
+                                tree.add(f"  {prefix}[blue]{icon} {item['name']}[/blue]", style=style)
+                            elif item["type"] == "op":
+                                op = item["op"]
+                                m = op["method"]
+                                m_col = {"GET": "green", "POST": "yellow", "PUT": "blue", "DELETE": "red"}.get(m, "white")
+                                node = tree.add(f"    {prefix}[{m_col}]{m}[/{m_col}] [bold]{item['name']}[/bold]", style=style)
+                                if is_sel:
+                                    all_params = self.engine.get_params_for_operation(item["name"])
+                                    if all_params:
+                                        p_node = node.add("[dim]Parameters[/dim]")
+                                        for p in all_params:
+                                            p_node.add(f"[dim]{p['name']} ({p['type']})[/dim] [yellow]in:{p['in']}[/yellow]")
+
+                        live.update(tree, refresh=True)
+
+                        # Handle input with a short timeout to keep UI responsive but not spin
+                        # read_keys() is non-blocking in prompt_toolkit by default if nothing is in buffer
+                        keys = input_stream.read_keys()
+                        for k in keys:
+                            if k.key == Keys.Up:
+                                selected_idx -= 1
+                            elif k.key == Keys.Down:
+                                selected_idx += 1
+                            elif k.key in (Keys.ControlM, " "): # Enter/Space
+                                curr = visible_items[selected_idx]
+                                if curr["type"] in ("tag", "path"):
+                                    curr["expanded"] = not curr["expanded"]
+                            elif k.key == "q" or k.key == Keys.ControlC:
+                                return
+                        time.sleep(0.05)
+        except Exception as e:
+            console.print(f"[red]TUI Error: {e}[/red]")
+        finally:
+            console.show_cursor(True)
 
     def show_help(self):
         table = Table(title="Internal Commands")

@@ -73,6 +73,71 @@ class OpenAIEngine:
                             "raw": op
                         }
 
+    def resolve_schema(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolves $ref in a schema object."""
+        if not isinstance(schema, dict):
+            return schema
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")
+            # Assuming #/components/schemas/...
+            curr = self.spec
+            for part in ref_path[1:]:
+                curr = curr.get(part, {})
+            # Merge original schema (minus $ref) into resolved for constraints
+            resolved = curr.copy()
+            for k, v in schema.items():
+                if k != "$ref": resolved[k] = v
+            return self.resolve_schema(resolved)
+        return schema
+
+    def get_params_for_operation(self, op_id: str) -> List[Dict[str, Any]]:
+        """Returns flattened list of all available parameters (Path, Query, Body, etc)."""
+        op = self.operations.get(op_id)
+        if not op: return []
+
+        all_params = []
+        # 1. Standard Parameters (Path, Query, Header)
+        for p in op.get("parameters", []):
+            all_params.append({
+                "name": p["name"],
+                "in": p.get("in", "query"),
+                "type": p.get("schema", {}).get("type", "string"),
+                "required": p.get("required", False)
+            })
+
+        # 2. Request Body
+        body = op.get("requestBody")
+        if body:
+            content = body.get("content", {})
+            # We primarily support JSON
+            json_schema = content.get("application/json", {}).get("schema")
+            if json_schema:
+                all_params.extend(self._flatten_schema(json_schema, prefix=""))
+
+        return all_params
+
+    def _flatten_schema(self, schema: Dict[str, Any], prefix: str = "") -> List[Dict[str, Any]]:
+        """Recursively flattens a schema into dot-notation parameters."""
+        schema = self.resolve_schema(schema)
+        params = []
+        
+        s_type = schema.get("type")
+        if s_type == "object":
+            props = schema.get("properties", {})
+            for name, prop in props.items():
+                full_name = f"{prefix}{name}"
+                params.extend(self._flatten_schema(prop, prefix=f"{full_name}."))
+        else:
+            # Leaf node
+            if prefix:
+                params.append({
+                    "name": prefix.rstrip('.'),
+                    "in": "body",
+                    "type": s_type or "any",
+                    "required": False # Complex to determine accurately from here
+                })
+        return params
+
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
         if self.token:
