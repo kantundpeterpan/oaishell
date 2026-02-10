@@ -7,6 +7,7 @@ OAI-Shell is designed as a modular pipeline that transforms a static OpenAPI spe
 ### 1. The Engine (`oai_shell/engine/client.py`)
 The Engine is the heart of the system. It handles:
 *   **Spec Ingestion**: Parsing `openapi.json` into a searchable dictionary of operations.
+*   **Schema Discovery**: Recursive `$ref` resolution and flattening of complex request models.
 *   **HTTP Communication**: Using `httpx` to manage REST requests and Streaming (SSE).
 *   **Authentication**: Handling Bearer tokens and custom security headers.
 
@@ -24,7 +25,8 @@ A specialized utility that bridges the gap between CLI flags and API requirement
 ### 4. The Shell Runner (`oai_shell/shell/runner.py`)
 The UI layer built on `prompt_toolkit`. It provides:
 *   **The REPL**: Persistent command loop with history.
-*   **Autocomplete**: Context-aware suggestions for commands and operation IDs.
+*   **Interactive Explorer**: Hierarchical TUI (`/operations-tui`) for browsing the API.
+*   **Autocomplete**: Context-aware suggestions for commands, operation IDs, and nested body parameters.
 *   **Output Rendering**: Uses `rich` for beautiful JSON and Markdown formatting.
 
 ---
