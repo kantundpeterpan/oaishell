@@ -31,18 +31,34 @@ class PayloadAssembler:
 
     def assemble(self, operation_id: str, cli_params: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         """Sorts flat params into path, query, body based on OpenAPI spec."""
+        # Convert any numeric strings in cli_params to actual numbers if needed
+        cli_params = {k: self._infer_type(v) for k, v in cli_params.items()}
+        
         op = self.engine.operations.get(operation_id)
         if not op:
             return {}
 
-        payload = {"path_params": {}, "query_params": {}, "body": {}}
+        payload = {"path_params": {}, "query_params": {}, "body": {}, "headers": {}}
         
         # Determine locations
         spec_params = op.get("parameters", [])
         path_template = op.get("path", "")
         path_vars = re.findall(r'\{([^}]+)\}', path_template)
         
+        # Determine nesting (dot notation)
+        nested_params = {}
         for key, value in cli_params.items():
+            if '.' in key:
+                parts = key.split('.')
+                curr = nested_params
+                for p in parts[:-1]:
+                    if p not in curr: curr[p] = {}
+                    curr = curr[p]
+                curr[parts[-1]] = value
+            else:
+                nested_params[key] = value
+
+        for key, value in nested_params.items():
             placed = False
             # Check path
             if key in path_vars:
@@ -55,9 +71,23 @@ class PayloadAssembler:
                         if p["in"] == "query":
                             payload["query_params"][key] = value
                             placed = True
+                        elif p["in"] == "header":
+                            payload["headers"][key] = value
+                            placed = True
                         break
             # Default to body
             if not placed:
                 payload["body"][key] = value
                 
         return payload
+
+    def _infer_type(self, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        if value.lower() == 'true': return True
+        if value.lower() == 'false': return False
+        try:
+            if '.' in value: return float(value)
+            return int(value)
+        except ValueError:
+            return value

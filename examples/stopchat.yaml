@@ -13,7 +13,7 @@ state:
 
 commands:
   /init:
-    operationId: "init_chat_api_v1_chat_init_post"
+    operationId: "initialize_chat_api_v1_chat_init_post"
     description: "Initialize a new session"
     mapping:
       user_id: "$1"

@@ -79,11 +79,26 @@ class OpenAIEngine:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
+    def discover(self, openapi_url: str = "/openapi.json"):
+        url = openapi_url
+        if not (url.startswith("http://") or url.startswith("https://")):
+            url = f"{self.base_url}/{openapi_url.lstrip('/')}"
+        
+        try:
+            resp = self.client.get(url)
+            resp.raise_for_status()
+            self.load_spec(resp.json())
+            return self.spec
+        except Exception as e:
+            raise EngineError(f"Failed to discover API at {url}: {e}")
+
     def call(self, operation_id: str, 
              path_params: Dict[str, Any] = None,
              query_params: Dict[str, Any] = None,
              body: Any = None,
-             files: Dict[str, Any] = None) -> httpx.Response:
+             files: Dict[str, Any] = None,
+             headers: Dict[str, str] = None,
+             stream: bool = False) -> Union[httpx.Response, httpx.Response]:
         
         if operation_id not in self.operations:
             raise EngineError(f"Operation {operation_id} not found")
@@ -98,10 +113,14 @@ class OpenAIEngine:
         url = f"{self.base_url}{path}"
         
         # Prepare request params
+        all_headers = self._get_headers()
+        if headers:
+            all_headers.update(headers)
+            
         request_kwargs = {
             "method": op["method"],
             "url": url,
-            "headers": self._get_headers(),
+            "headers": all_headers,
             "params": query_params,
         }
         
@@ -111,8 +130,12 @@ class OpenAIEngine:
             request_kwargs["json"] = body
 
         try:
-            resp = self.client.request(**request_kwargs)
-            resp.raise_for_status()
-            return resp
+            if stream:
+                # Returns a context manager for streaming
+                return self.client.stream(**request_kwargs)
+            else:
+                resp = self.client.request(**request_kwargs)
+                resp.raise_for_status()
+                return resp
         except httpx.HTTPError as e:
             raise EngineError(f"HTTP Request failed: {e}")

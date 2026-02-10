@@ -12,7 +12,7 @@ from oai_shell.shell.runner import ShellRunner
 
 def main():
     parser = argparse.ArgumentParser(description="OAI-Shell: Generic OpenAPI Terminal")
-    parser.add_argument("--config", required=True, help="Path to oai-shell.yaml")
+    parser.add_argument("--config", help="Path to oai-shell.yaml")
     parser.add_argument("--base-url", help="Override API base URL")
     parser.add_argument("--token", help="Bearer token")
     
@@ -33,9 +33,7 @@ def main():
         
         # 3. Discover API
         print(f"Discovering API at {base_url}{cfg.openapi_url}...")
-        resp = requests.get(f"{base_url}{cfg.openapi_url}")
-        resp.raise_for_status()
-        engine.load_spec(resp.json())
+        engine.discover(cfg.openapi_url)
 
         # 4. Start Shell
         runner = ShellRunner(cfg, engine)

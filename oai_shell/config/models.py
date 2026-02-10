@@ -14,7 +14,7 @@ class StateConfig(BaseModel):
 
 class ShellConfig(BaseModel):
     name: str = "OAI-Shell"
-    openapi_url: str
+    openapi_url: str = "/openapi.json"
     base_url: Optional[str] = None
     commands: Dict[str, CommandConfig] = Field(default_factory=dict)
     state: StateConfig = Field(default_factory=StateConfig)

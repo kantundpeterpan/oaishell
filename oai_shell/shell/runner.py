@@ -37,6 +37,7 @@ class OAIShellCompleter(Completer):
                 '/help': 'Show help',
                 '/exit': 'Exit shell',
                 '/state': 'Show current state',
+                '/operations': 'List available API operations',
                 '/call': 'Call raw operation'
             }
             
@@ -71,6 +72,10 @@ class ShellRunner:
     def run(self):
         console.print(Panel(f"[bold green]Welcome to {self.config.name}[/bold green]\nConnected to {self.engine.base_url}"))
         
+        # Initial operation list to populate completer
+        if not self.engine.operations:
+            console.print("[yellow]Warning: No operations discovered yet.[/yellow]")
+
         while True:
             try:
                 line = self.session.prompt(f"{self.config.name} > ").strip()
@@ -90,6 +95,8 @@ class ShellRunner:
 
             if cmd == "/help":
                 self.show_help()
+            elif cmd == "/operations":
+                self.show_operations()
             elif cmd == "/state":
                 self.show_state()
             elif cmd == "/call":
@@ -110,26 +117,52 @@ class ShellRunner:
         console.print(table)
 
     def show_help(self):
-        table = Table(title="Available Commands")
+        table = Table(title="Internal Commands")
         table.add_column("Command")
         table.add_column("Description")
-        for cmd, conf in self.config.commands.items():
-            table.add_row(cmd, conf.description or "")
+        table.add_row("/help", "Show this help")
+        table.add_row("/operations", "List available API operations")
+        table.add_row("/state", "Show current state")
+        table.add_row("/call <op_id>", "Call a raw API operation")
+        table.add_row("/exit", "Exit the shell")
+        console.print(table)
+
+        if self.config.commands:
+            table = Table(title="Custom Commands")
+            table.add_column("Command")
+            table.add_column("Description")
+            for cmd, conf in self.config.commands.items():
+                table.add_row(cmd, conf.description or "")
+            console.print(table)
+
+    def show_operations(self):
+        table = Table(title="Available Operations")
+        table.add_column("Operation ID", style="cyan")
+        table.add_column("Method", style="green")
+        table.add_column("Path", style="blue")
+        table.add_column("Summary")
+        
+        for op_id, op in self.engine.operations.items():
+            table.add_row(op_id, op["method"], op["path"], op["summary"])
         console.print(table)
 
     def handle_call(self, args: List[str]):
         if not args:
-            console.print("[red]Usage: /call <operation_id> [--param value][/red]")
+            console.print("[red]Usage: /call <operation_id> [--param value] [--stream][/red]")
             return
         
         op_id = args[0]
         # Very basic flag parsing for now
         cli_params = {}
+        stream = False
         i = 1
         while i < len(args):
-            if args[i].startswith("--"):
+            if args[i] == "--stream":
+                stream = True
+                i += 1
+            elif args[i].startswith("--"):
                 key = args[i][2:]
-                if i + 1 < len(args):
+                if i + 1 < len(args) and not args[i+1].startswith("--"):
                     cli_params[key] = args[i+1]
                     i += 2
                 else:
@@ -137,7 +170,7 @@ class ShellRunner:
                     i += 1
             else: i += 1
 
-        self._execute_call(op_id, cli_params)
+        self._execute_call(op_id, cli_params, stream=stream)
 
     def handle_custom_command(self, cmd: str, args: List[str]):
         conf = self.config.commands[cmd]
@@ -150,7 +183,7 @@ class ShellRunner:
             
         self._execute_call(op_id, cli_params)
 
-    def _execute_call(self, op_id: str, cli_params: Dict[str, Any]):
+    def _execute_call(self, op_id: str, cli_params: Dict[str, Any], stream: bool = False):
         # Auto-inject state
         for key in self.config.state.auto_inject:
             if key not in cli_params:
@@ -160,25 +193,32 @@ class ShellRunner:
         payload = self.assembler.assemble(op_id, cli_params)
         
         try:
-            resp = self.engine.call(op_id, **payload)
-            data = resp.json()
-            
-            # Print response
-            console.print(Panel(json.dumps(data, indent=2), title="[bold blue]Response[/bold blue]"))
-            
-            # After call hooks
-            conf = next((c for k, c in self.config.commands.items() if c.operationId == op_id), None)
-            if conf and conf.after_call:
-                save = conf.after_call.get("save_to_state", {})
-                for state_key, path in save.items():
-                    # Simple JSON path: "json:key" or "json:nested.key"
-                    if path.startswith("json:"):
-                        key_path = path[5:].split('.')
-                        val = data
-                        try:
-                            for p in key_path: val = val[p]
-                            self.state.update(**{state_key: val})
-                            console.print(f"[dim]State updated: {state_key}[/dim]")
-                        except: pass
+            if stream:
+                with self.engine.call(op_id, stream=True, **payload) as resp:
+                    console.print("[bold blue]Streaming Response:[/bold blue]")
+                    for line in resp.iter_lines():
+                        if line:
+                            console.print(line)
+            else:
+                resp = self.engine.call(op_id, **payload)
+                data = resp.json()
+                
+                # Print response
+                console.print(Panel(json.dumps(data, indent=2), title="[bold blue]Response[/bold blue]"))
+                
+                # After call hooks
+                conf = next((c for k, c in self.config.commands.items() if c.operationId == op_id), None)
+                if conf and conf.after_call:
+                    save = conf.after_call.get("save_to_state", {})
+                    for state_key, path in save.items():
+                        # Simple JSON path: "json:key" or "json:nested.key"
+                        if path.startswith("json:"):
+                            key_path = path[5:].split('.')
+                            val = data
+                            try:
+                                for p in key_path: val = val[p]
+                                self.state.update(**{state_key: val})
+                                console.print(f"[dim]State updated: {state_key}[/dim]")
+                            except: pass
         except EngineError as e:
             console.print(f"[red]API Error:[/red] {e}")
