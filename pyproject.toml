@@ -1,0 +1,14 @@
+[project]
+name = "oaishell"
+version = "0.1.0"
+description = "A generic, configuration-driven terminal interface for any OpenAPI-compliant backend."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "prompt-toolkit>=3.0.52",
+    "pydantic>=2.12.5",
+    "pytest>=9.0.2",
+    "pyyaml>=6.0.3",
+    "rich>=14.3.2",
+]
