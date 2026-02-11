@@ -3,19 +3,15 @@ import json
 import shlex
 from typing import Dict, Any, List, Optional, Tuple
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, RichLog, Static, DataTable, Tree, Label, Button
-from textual.widgets.tree import TreeNode
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll, ScrollableContainer
+from textual.widgets import Header, Footer, Input, RichLog, Static, DataTable
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.binding import Binding
 from textual.suggester import Suggester
-from textual.screen import ModalScreen
-from textual_autocomplete import AutoComplete, DropdownItem
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table as RichTable
 from rich.markdown import Markdown
 from rich.syntax import Syntax
-from rich.tree import Tree as RichTree
 
 from ..engine.client import OpenAIEngine, ClientState, EngineError
 from ..engine.utils import PayloadAssembler, SchemaPathResolver
@@ -41,7 +37,7 @@ class OAIShellSuggester(Suggester):
         if value.startswith('/') and (len(words) <= 1 or ' ' not in value):
             internals = [
                 '/help', '/exit', '/state', '/operations', 
-                '/call', '/theme'
+                '/operations-tui', '/call'
             ]
             custom = list(self.config.commands.keys())
             all_cmds = internals + custom
@@ -84,247 +80,6 @@ class StatePanel(Static):
             for k, v in state_dict.items():
                 table.add_row(k, str(v)[:30])  # Truncate long values
             self.update(table)
-
-
-class OperationsScreen(ModalScreen):
-    """Modal screen for interactive operations explorer."""
-    
-    BINDINGS = [
-        Binding("escape", "dismiss", "Close"),
-        Binding("q", "dismiss", "Close"),
-    ]
-    
-    CSS = """
-    OperationsScreen {
-        align: center middle;
-    }
-    
-    #operations_container {
-        width: 95%;
-        height: 90%;
-        background: $surface;
-        border: thick $primary;
-    }
-    
-    #operations_tree {
-        width: 1fr;
-        height: 100%;
-        border: round $primary;
-        background: $surface;
-    }
-    
-    #request_panel {
-        width: 1fr;
-        height: 100%;
-        border: round $accent;
-        background: $surface;
-    }
-    
-    #response_panel {
-        width: 1fr;
-        height: 100%;
-        border: round $accent;
-        background: $surface;
-    }
-    """
-    
-    def __init__(self, engine: OpenAIEngine, config: ShellConfig, state: ClientState):
-        super().__init__()
-        self.engine = engine
-        self.config = config
-        self.state = state
-        self.selected_operation = None
-    
-    def compose(self) -> ComposeResult:
-        """Compose the operations explorer UI."""
-        with Container(id="operations_container"):
-            with Horizontal():
-                yield ScrollableContainer(
-                    Tree("API Operations", id="operations_tree"),
-                    id="tree_container"
-                )
-                yield ScrollableContainer(
-                    Static("Select an operation to view request schema", id="request_content"),
-                    id="request_panel"
-                )
-                yield ScrollableContainer(
-                    Static("Select an operation to view response schema", id="response_content"),
-                    id="response_panel"
-                )
-    
-    def on_mount(self) -> None:
-        """Build the operations tree when mounted."""
-        tree = self.query_one("#operations_tree", Tree)
-        tree.show_root = False
-        
-        depth = self.config.tui.aggregation_depth
-        tag_groups: Dict[str, Dict[str, List[Tuple[str, Dict[str, Any]]]]] = {}
-        
-        # Group operations by tag and path
-        for op_id, op in self.engine.operations.items():
-            tags = op["raw"].get("tags", ["default"])
-            for tag in tags:
-                if tag not in tag_groups:
-                    tag_groups[tag] = {}
-                path = op.get("display_path", op["path"])
-                parts = path.strip('/').split('/')
-                if depth > 0 and len(parts) > depth:
-                    group_path = '/' + '/'.join(parts[:depth]) + '/...'
-                else:
-                    group_path = path
-                if group_path not in tag_groups[tag]:
-                    tag_groups[tag][group_path] = []
-                tag_groups[tag][group_path].append((op_id, op))
-        
-        # Build tree structure
-        for tag in sorted(tag_groups.keys()):
-            display_tag = tag
-            if self.engine.common_prefix:
-                display_tag = f"{tag} ({self.engine.common_prefix})"
-            tag_node = tree.root.add(display_tag, expand=True)
-            tag_node.data = {"type": "tag", "name": tag}
-            
-            paths = tag_groups[tag]
-            for path in sorted(paths.keys()):
-                path_node = tag_node.add(path, expand=False)
-                path_node.data = {"type": "path", "name": path}
-                
-                for op_id, op in sorted(paths[path], key=lambda x: x[0]):
-                    method = op["method"]
-                    method_style = {
-                        "GET": "green",
-                        "POST": "yellow", 
-                        "PUT": "blue",
-                        "DELETE": "red"
-                    }.get(method, "white")
-                    op_node = path_node.add(f"[{method_style}]{method}[/{method_style}] {op_id}")
-                    op_node.data = {"type": "op", "op_id": op_id, "op": op}
-    
-    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
-        """Handle tree node selection."""
-        node = event.node
-        if not node.data or node.data.get("type") != "op":
-            return
-        
-        op_id = node.data["op_id"]
-        op = node.data["op"]
-        self.selected_operation = op_id
-        
-        # Update request panel
-        self._update_request_panel(op)
-        
-        # Update response panel
-        self._update_response_panel(op)
-    
-    def _build_schema_tree(self, schema: Dict[str, Any], name: str = "root") -> RichTree:
-        """Build a Rich tree from a schema."""
-        schema = self.engine.resolve_schema(schema)
-        s_type = schema.get("type", "object")
-        description = schema.get("description", "")
-        
-        type_col = {
-            "object": "blue",
-            "array": "yellow",
-            "string": "green",
-            "integer": "cyan",
-            "number": "cyan",
-            "boolean": "magenta"
-        }.get(s_type, "white")
-        
-        icon = self.config.tui.type_icons.get(s_type, self.config.tui.type_icons.get("default", ""))
-        label = f"{icon} [bold cyan]{name}[/bold cyan] [dim][{type_col}]({s_type})[/{type_col}][/dim]"
-        if description:
-            label += f" - [italic]{description}[/italic]"
-        
-        res_tree = RichTree(label)
-        
-        if s_type == "object":
-            props = schema.get("properties", {})
-            required = schema.get("required", [])
-            for p_name, p_schema in props.items():
-                p_label = p_name
-                if p_name in required:
-                    p_label = f"[bold white]{p_name}*[/bold white]"
-                sub_tree = self._build_schema_tree(p_schema, p_label)
-                res_tree.add(sub_tree)
-        elif s_type == "array":
-            items = schema.get("items", {})
-            sub_tree = self._build_schema_tree(items, "items[]")
-            res_tree.add(sub_tree)
-        
-        return res_tree
-    
-    def _update_request_panel(self, op: Dict[str, Any]) -> None:
-        """Update the request schema panel."""
-        req_content = []
-        
-        # Parameters
-        params = []
-        for p in op.get("parameters", []):
-            params.append({
-                "name": p["name"],
-                "in": p.get("in", "query"),
-                "type": p.get("schema", {}).get("type", "string"),
-                "required": p.get("required", False),
-                "description": p.get("description", "")
-            })
-        
-        if params:
-            table = RichTable(title="Parameters", box=None, padding=(0, 1))
-            table.add_column("Name", style="cyan")
-            table.add_column("In", style="yellow")
-            table.add_column("Type", style="magenta")
-            table.add_column("Description")
-            for p in params:
-                name = f"[bold]{p['name']}*[/bold]" if p["required"] else p['name']
-                table.add_row(name, p["in"], p["type"], p["description"][:40] if p["description"] else "")
-            req_content.append(table)
-        
-        # Request Body
-        body = op.get("requestBody")
-        if body:
-            content = body.get("content", {})
-            json_schema = content.get("application/json", {}).get("schema")
-            if json_schema:
-                req_content.append(self._build_schema_tree(json_schema, name="RequestBody (JSON)"))
-        
-        if not req_content:
-            req_content.append("[dim]No request parameters or body[/dim]")
-        
-        request_static = self.query_one("#request_content", Static)
-        request_static.update(Panel(Group(*req_content), title="Request Schema"))
-    
-    def _update_response_panel(self, op: Dict[str, Any]) -> None:
-        """Update the response schema panel."""
-        res_200 = op.get("responses", {}).get("200", {})
-        res_content_spec = res_200.get("content", {})
-        res_json_schema = res_content_spec.get("application/json", {}).get("schema")
-        
-        if res_json_schema:
-            res_view = self._build_schema_tree(res_json_schema, name="Response (200 OK)")
-            response_static = self.query_one("#response_content", Static)
-            response_static.update(Panel(res_view, title="Response Schema"))
-        else:
-            response_static = self.query_one("#response_content", Static)
-            response_static.update(Panel("[dim]No response schema (application/json) found for 200 OK[/dim]", title="Response Schema"))
-    
-    def action_dismiss(self) -> None:
-        """Dismiss the modal and return selected operation."""
-        if self.selected_operation:
-            # Build command with required parameters
-            cmd = f"/call {self.selected_operation}"
-            op = self.engine.operations.get(self.selected_operation)
-            if op:
-                all_params = self.engine.get_params_for_operation(self.selected_operation)
-                required_missing = [
-                    p["name"] for p in all_params 
-                    if p.get("required") and self.state.get(p["name"]) is None
-                ]
-                for p_name in required_missing:
-                    cmd += f" --{p_name} "
-            self.dismiss(cmd + " ")
-        else:
-            self.dismiss(None)
 
 
 class OAIShellApp(App):
@@ -391,86 +146,20 @@ class OAIShellApp(App):
         self.assembler = PayloadAssembler(self.engine, self.state)
         self.title = config.name
         self.sub_title = f"Connected to {engine.base_url}"
-        self._current_theme_name = "dark"  # Default theme name
     
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header(show_clock=True)
         yield StatePanel(self.state, id="state_panel")
         yield RichLog(id="output_log", highlight=True, markup=True, wrap=True)
-        
-        # Create input with autocomplete
-        input_widget = Input(
-            placeholder="Enter command (e.g., /help, /operations, /call ...)",
-            id="command_input"
+        yield Container(
+            Input(
+                placeholder="Enter command (e.g., /help, /operations, /call ...)",
+                suggester=OAIShellSuggester(self.engine, self.config),
+                id="command_input"
+            ),
+            id="input_container"
         )
-        
-        yield Container(input_widget, id="input_container")
-        
-        # Add autocomplete overlay
-        yield AutoComplete(
-            target="#command_input",
-            candidates=self._get_autocomplete_items
-        )
-    
-    def _get_autocomplete_items(self, input_state) -> List[DropdownItem]:
-        """Generate autocomplete items based on current input."""
-        value = input_state.text
-        if not value:
-            return []
-        
-        items = []
-        words = value.split()
-        
-        # Command suggestions
-        if value.startswith('/') and (len(words) <= 1 or ' ' not in value):
-            internals = [
-                '/help', '/exit', '/state', '/operations', '/call', '/theme'
-            ]
-            custom = list(self.config.commands.keys())
-            all_cmds = internals + custom
-            
-            for cmd in all_cmds:
-                if cmd.startswith(value):
-                    items.append(DropdownItem(cmd))
-        
-        # Operation IDs after /call
-        elif value.startswith('/call ') and len(words) >= 2:
-            if not value.endswith(' '):
-                # Still typing operation ID
-                prefix = words[1] if len(words) == 2 else ""
-                for op_id in self.engine.operations.keys():
-                    if op_id.lower().startswith(prefix.lower()):
-                        items.append(DropdownItem(main=f'/call {op_id}'))
-            else:
-                # Operation ID complete, suggest parameters
-                op_id = words[1]
-                if op_id in self.engine.operations:
-                    all_params = self.engine.get_params_for_operation(op_id)
-                    current_word = words[-1] if len(words) > 2 and not value.endswith(' ') else ""
-                    
-                    # Add parameter suggestions
-                    for p in all_params:
-                        param_name = f"--{p['name']}"
-                        if current_word.startswith('--'):
-                            if param_name.startswith(current_word):
-                                replacement = value.rsplit(current_word, 1)[0] + param_name + " "
-                                items.append(DropdownItem(main=replacement))
-                        else:
-                            # Suggest parameters not yet used
-                            param_text = f"--{p['name']}"
-                            if param_text not in value:
-                                items.append(DropdownItem(main=value + param_name + " ", left_meta=f"({p['in']})"))
-        
-        # Theme suggestions
-        elif value.startswith('/theme ') and len(words) == 2 and not value.endswith(' '):
-            themes = ['dark', 'light', 'dark-high-contrast']
-            prefix = words[1]
-            for theme in themes:
-                if theme.startswith(prefix.lower()):
-                    items.append(DropdownItem(main=f'/theme {theme}'))
-        
-        return items[:10]  # Limit to 10 items
     
     def on_mount(self) -> None:
         """Initialize the app when mounted."""
@@ -542,11 +231,9 @@ class OAIShellApp(App):
             if cmd == "/help":
                 self.show_help()
             elif cmd == "/operations":
-                await self.show_operations_interactive()
+                self.show_operations()
             elif cmd == "/state":
                 self.show_state()
-            elif cmd == "/theme":
-                self.handle_theme(args)
             elif cmd == "/call":
                 await self.handle_call(args)
             elif cmd in self.config.commands:
@@ -564,9 +251,8 @@ class OAIShellApp(App):
         table.add_column("Command", style="cyan")
         table.add_column("Description")
         table.add_row("/help", "Show this help")
-        table.add_row("/operations", "Interactive API operations explorer")
+        table.add_row("/operations", "List available API operations")
         table.add_row("/state", "Show current state")
-        table.add_row("/theme <name>", "Change color theme (dark, light, dark-high-contrast)")
         table.add_row("/call <op_id>", "Call a raw API operation")
         table.add_row("/exit", "Exit the shell")
         
@@ -580,41 +266,25 @@ class OAIShellApp(App):
                 table2.add_row(cmd, conf.description or "")
             output_log.write(table2)
     
-    async def show_operations_interactive(self):
-        """Show interactive operations explorer modal."""
-        def handle_result(result):
-            if result:
-                # Set the returned command in the input
-                input_widget = self.query_one("#command_input", Input)
-                input_widget.value = result
-                input_widget.focus()
-        
-        await self.push_screen(OperationsScreen(self.engine, self.config, self.state), handle_result)
-    
-    def handle_theme(self, args: List[str]):
-        """Handle theme changing."""
+    def show_operations(self):
+        """Display available API operations."""
         output_log = self.query_one("#output_log", RichLog)
         
-        if not args:
-            output_log.write(f"[yellow]Current theme:[/yellow] {self._current_theme_name}")
-            output_log.write("[cyan]Available themes:[/cyan] dark, light, dark-high-contrast")
-            return
+        table = RichTable(title="Available Operations", box=None, padding=(0, 1))
+        table.add_column("Operation ID", style="cyan")
+        table.add_column("Method", style="green")
+        table.add_column("Path", style="blue")
+        table.add_column("Summary")
         
-        theme_name = args[0].lower()
-        valid_themes = {
-            'dark': 'textual-dark',
-            'light': 'textual-light',
-            'dark-high-contrast': 'textual-dark-high-contrast'
-        }
+        for op_id, op in self.engine.operations.items():
+            table.add_row(
+                op_id,
+                op["method"],
+                op.get("display_path", op["path"]),
+                op.get("summary", "")
+            )
         
-        if theme_name not in valid_themes:
-            output_log.write(f"[red]Invalid theme:[/red] {theme_name}")
-            output_log.write("[cyan]Available themes:[/cyan] dark, light, dark-high-contrast")
-            return
-        
-        self.theme = valid_themes[theme_name]
-        self._current_theme_name = theme_name
-        output_log.write(f"[green]Theme changed to:[/green] {theme_name}")
+        output_log.write(table)
     
     def show_state(self):
         """Display current state."""
