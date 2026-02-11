@@ -109,12 +109,26 @@ class ShellRunner:
         if not self.engine.operations:
             console.print("[yellow]Warning: No operations discovered yet.[/yellow]")
 
+        next_prompt_default = ""
+
         while True:
             try:
-                line = self.session.prompt(f"{self.config.name} > ").strip()
+                line = self.session.prompt(
+                    f"{self.config.name} > ", 
+                    default=next_prompt_default
+                ).strip()
+                next_prompt_default = "" # Reset after use
+                
                 if not line: continue
                 if line == "/exit": break
-                self.handle_input(line)
+                
+                # Check if it's a TUI call that might return a selection
+                if line == "/operations-tui":
+                    result = self.show_operations_tui()
+                    if result:
+                        next_prompt_default = result
+                else:
+                    self.handle_input(line)
             except (KeyboardInterrupt, EOFError):
                 break
             except Exception as e:
@@ -151,8 +165,8 @@ class ShellRunner:
             table.add_row(k, str(v))
         console.print(table)
 
-    def show_operations_tui(self):
-        """Interactive hierarchical view of operations."""
+    def show_operations_tui(self) -> Optional[str]:
+        """Interactive hierarchical view of operations. Returns selected command if any."""
         depth = self.config.tui.aggregation_depth
         tag_groups: Dict[str, Dict[str, List[Tuple[str, Dict[str, Any]]]]] = {}
         
@@ -265,6 +279,25 @@ class ShellRunner:
                                 curr = visible_items[selected_idx]
                                 if curr["type"] in ("tag", "path"):
                                     curr["expanded"] = not curr["expanded"]
+                                elif curr["type"] == "op" and k.key == Keys.ControlM:
+                                    # Enter on operation -> Select for /call
+                                    op_id = curr["name"]
+                                    cmd = f"/call {op_id}"
+                                    
+                                    # Find required parameters not in state
+                                    all_params = self.engine.get_params_for_operation(op_id)
+                                    required_missing = [
+                                        p["name"] for p in all_params 
+                                        if p.get("required") and self.state.get(p["name"]) is None
+                                    ]
+                                    
+                                    if required_missing:
+                                        for p_name in required_missing:
+                                            cmd += f" --{p_name} "
+                                    else:
+                                        cmd += " "
+                                        
+                                    return cmd
                             elif k.key == "q" or k.key == Keys.ControlC:
                                 return
                         time.sleep(0.05)

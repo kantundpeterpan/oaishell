@@ -9,14 +9,15 @@ Using ENTER on an endpoint in /operations-tui should lead to `/call <operation_i
 3. **Internal Logic**: `show_operations_tui` will return the command string to the main loop.
 
 ## Technical Plan
-- [ ] Modify `show_operations_tui` to return an optional `str` (the command).
-- [ ] Implement logic to detect required parameters for an operation.
-- [ ] Filter out parameters already present in `self.state`.
-- [ ] Format the `/call` command string with the operation ID and required flags.
-- [ ] Update `ShellRunner.run()` to use the returned command as the default value for the next prompt.
+- [x] Modify `show_operations_tui` to return an optional `str` (the command).
+- [x] Implement logic to detect required parameters for an operation.
+- [x] Filter out parameters already present in `self.state`.
+- [x] Format the `/call` command string with the operation ID and required flags.
+- [x] Update `ShellRunner.run()` to use the returned command as the default value for the next prompt.
 
 ## Progress Report
 - [x] Initial setup and branching.
-- [ ] Logic for returning selection from TUI.
-- [ ] Logic for auto-appending required parameters.
-- [ ] Integration into the main REPL loop.
+- [x] Logic for returning selection from TUI.
+- [x] Logic for auto-appending required parameters.
+- [x] Integration into the main REPL loop.
+- [x] Code review for edge cases (falsy state values).
