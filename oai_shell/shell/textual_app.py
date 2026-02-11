@@ -88,36 +88,46 @@ class OAIShellApp(App):
     CSS = """
     Screen {
         layout: grid;
-        grid-size: 3 10;
-        grid-columns: 1fr 2fr 1fr;
+        grid-size: 12 12;
         grid-rows: auto 1fr auto;
     }
     
     Header {
-        column-span: 3;
+        column-span: 12;
     }
     
     #state_panel {
+        column-span: 3;
+        row-span: 10;
         height: 100%;
-        border: solid $primary;
+        border: round $primary;
         padding: 1;
+        background: $surface;
     }
     
     #output_log {
-        column-span: 2;
+        column-span: 9;
+        row-span: 10;
         height: 100%;
-        border: solid $primary;
+        border: round $primary;
+        background: $surface;
+        scrollbar-gutter: stable;
     }
     
     #input_container {
-        column-span: 3;
+        column-span: 12;
         height: auto;
         padding: 1;
-        border: solid $accent;
+        border: round $accent;
+        background: $panel;
     }
     
     Input {
         width: 100%;
+    }
+    
+    Input:focus {
+        border: tall $accent;
     }
     """
     
