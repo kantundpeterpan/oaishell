@@ -55,7 +55,7 @@ def test_payload_assembler_assemble():
         "tags": "admin"
     }
     
-    payload = assembler.assemble("update_user", cli_params)
+    payload, autofilled = assembler.assemble("update_user", cli_params)
     
     assert payload["path_params"]["id"] == "user123"
     assert payload["headers"]["X-API-Key"] == "key123"
@@ -63,6 +63,58 @@ def test_payload_assembler_assemble():
     assert payload["body"]["profile"]["name"] == "Alice"
     assert payload["body"]["profile"]["age"] == 30  # Inferred as int
     assert payload["body"]["tags"] == "admin"
+
+def test_payload_assembler_autofill():
+    engine = OpenAIEngine("http://test.com")
+    spec = {
+        "paths": {
+            "/chat/{session_id}": {
+                "post": {
+                    "operationId": "send_message",
+                    "parameters": [
+                        {"name": "session_id", "in": "path"}
+                    ],
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "user.id": {"type": "string"},
+                                        "message": {"type": "string"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    engine.load_spec(spec)
+    
+    state = ClientState()
+    state.update(session_id="session_789", user={"id": "user_456"})
+    # Also test flat dot notation in state
+    state.update(**{"some.other.param": "val"})
+    
+    assembler = PayloadAssembler(engine, state)
+    
+    # 1. Test nested autofill (session_id from path, user.id from nested state)
+    cli_params = {"message": "hello"}
+    payload, autofilled = assembler.assemble("send_message", cli_params)
+    
+    assert "session_id" in autofilled
+    assert "user.id" in autofilled
+    assert payload["path_params"]["session_id"] == "session_789"
+    assert payload["body"]["user"]["id"] == "user_456"
+    assert payload["body"]["message"] == "hello"
+    
+    # 2. Test precedence (CLI override)
+    cli_params = {"session_id": "manual_session", "message": "hello"}
+    payload, autofilled = assembler.assemble("send_message", cli_params)
+    assert "session_id" not in autofilled
+    assert payload["path_params"]["session_id"] == "manual_session"
 
 def test_type_inference():
     assembler = PayloadAssembler(None, None)

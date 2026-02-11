@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 from ..engine.client import OpenAIEngine, ClientState
 
 class SchemaPathResolver:
@@ -79,14 +79,30 @@ class PayloadAssembler:
         template = re.sub(r'\$STATE\.([a-zA-Z_][a-zA-Z0-9_]*)', state_replacer, template)
         return template
 
-    def assemble(self, operation_id: str, cli_params: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """Sorts flat params into path, query, body based on OpenAPI spec."""
+    def assemble(self, operation_id: str, cli_params: Dict[str, Any]) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+        """Sorts flat params into path, query, body based on OpenAPI spec.
+        
+        Returns (payload, autofilled_keys).
+        """
+        # 1. Identify all potential parameters for this operation
+        all_spec_params = self.engine.get_params_for_operation(operation_id)
+        
+        # 2. Autofill missing params from state
+        autofilled_keys = []
+        for p in all_spec_params:
+            name = p["name"]
+            if name not in cli_params:
+                val = self._get_from_state(name)
+                if val is not None:
+                    cli_params[name] = val
+                    autofilled_keys.append(name)
+
         # Convert any numeric strings in cli_params to actual numbers if needed
         cli_params = {k: self._infer_type(v) for k, v in cli_params.items()}
         
         op = self.engine.operations.get(operation_id)
         if not op:
-            return {}
+            return {}, []
 
         payload = {"path_params": {}, "query_params": {}, "body": {}, "headers": {}}
         
@@ -129,7 +145,17 @@ class PayloadAssembler:
             if not placed:
                 payload["body"][key] = value
                 
-        return payload
+        return payload, autofilled_keys
+
+    def _get_from_state(self, key: str) -> Any:
+        """Looks up a key in state, supporting both flat dot-notation and nested objects."""
+        # 1. Direct match (flat or exact)
+        val = self.state.get(key)
+        if val is not None:
+            return val
+            
+        # 2. Nested match using SchemaPathResolver logic
+        return SchemaPathResolver.resolve_data(self.state.to_dict(), key)
 
     def _infer_type(self, value: Any) -> Any:
         if not isinstance(value, str):

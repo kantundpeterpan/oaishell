@@ -12,11 +12,11 @@ Notification of parameter autofill should be similar to that of saving values to
 4. **Notification**: Display autofilled parameters in the UI using a style similar to state updates: `[dim italic]Autofilled from state: {key}[/dim italic]`.
 
 ## Progress
-- [ ] Implement state lookup logic in `PayloadAssembler`
-- [ ] Update `PayloadAssembler.assemble` to return metadata about autofilled keys
-- [ ] Update `ShellRunner` to display notifications
-- [ ] Remove/Integrate redundant `auto_inject` logic
-- [ ] Verify with tests
+- [x] Implement state lookup logic in `PayloadAssembler`
+- [x] Update `PayloadAssembler.assemble` to return metadata about autofilled keys
+- [x] Update `ShellRunner` to display notifications
+- [x] Remove/Integrate redundant `auto_inject` logic
+- [x] Verify with tests
 
 ## Technical Plan
 1. **Engine Update (`oai_shell/engine/utils.py`)**:

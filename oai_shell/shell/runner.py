@@ -409,17 +409,13 @@ class ShellRunner:
             table.add_row(op_id, op["method"], op["path"], op["summary"])
         console.print(table)
 
-    def handle_call(self, args: List[str]):
-        if not args:
-            console.print("[red]Usage: /call <operation_id> [--param value] [--stream] [--debug][/red]")
-            return
-        
-        op_id = args[0]
-        # Very basic flag parsing for now
-        cli_params = {}
+    def _parse_cli_args(self, args: List[str]) -> Tuple[Dict[str, Any], List[str], bool, bool]:
+        """Parses args into (params, positional_args, stream_flag, debug_flag)."""
+        params = {}
+        pos_args = []
         stream = False
         debug = False
-        i = 1
+        i = 0
         while i < len(args):
             if args[i] == "--stream":
                 stream = True
@@ -430,40 +426,47 @@ class ShellRunner:
             elif args[i].startswith("--"):
                 key = args[i][2:]
                 if i + 1 < len(args) and not args[i+1].startswith("--"):
-                    cli_params[key] = args[i+1]
+                    params[key] = args[i+1]
                     i += 2
                 else:
-                    cli_params[key] = True
+                    params[key] = True
                     i += 1
-            else: i += 1
+            else:
+                pos_args.append(args[i])
+                i += 1
+        return params, pos_args, stream, debug
 
+    def handle_call(self, args: List[str]):
+        if not args:
+            console.print("[red]Usage: /call <operation_id> [--param value] [--stream] [--debug][/red]")
+            return
+        
+        op_id = args[0]
+        cli_params, _, stream, debug = self._parse_cli_args(args[1:])
         self._execute_call(op_id, cli_params, stream=stream, debug=debug)
 
     def handle_custom_command(self, cmd: str, args: List[str]):
         conf = self.config.commands[cmd]
         op_id = conf.operationId
         
-        # Check for --debug in args
-        debug = False
-        if "--debug" in args:
-            debug = True
-            args = [a for a in args if a != "--debug"]
+        cli_flags, pos_args, stream, debug = self._parse_cli_args(args)
 
-        # Build params from mapping
+        # Build params from mapping using positional args
         cli_params = {}
         for key, template in conf.mapping.items():
-            cli_params[key] = self.assembler.resolve_value(template, args)
+            cli_params[key] = self.assembler.resolve_value(template, pos_args)
             
-        self._execute_call(op_id, cli_params, debug=debug)
+        # Merge CLI flags (they take precedence over mapping)
+        cli_params.update(cli_flags)
+        
+        self._execute_call(op_id, cli_params, stream=stream, debug=debug)
 
     def _execute_call(self, op_id: str, cli_params: Dict[str, Any], stream: bool = False, debug: bool = False):
-        # Auto-inject state
-        for key in self.config.state.auto_inject:
-            if key not in cli_params:
-                val = self.state.get(key)
-                if val: cli_params[key] = val
-
-        payload = self.assembler.assemble(op_id, cli_params)
+        payload, autofilled = self.assembler.assemble(op_id, cli_params)
+        
+        # Notify autofilled params
+        for key in autofilled:
+            console.print(f"[dim italic]Autofilled from state: {key}[/dim italic]")
         
         # Get command config if exists
         cmd_conf = next((c for k, c in self.config.commands.items() if c.operationId == op_id), None)
