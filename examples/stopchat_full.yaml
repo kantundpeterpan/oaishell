@@ -47,7 +47,7 @@ commands:
 
   # Replicates /emotion <emotion>
   /emotion:
-    operationId: "handle_emotion_selection_api_v1_chat_dropdown_post"
+    operationId: "handle_emotion_selection_api_v1_chat_emotion_post"
     description: "Submit emotion selection"
     mapping:
       emotion: "$1"
