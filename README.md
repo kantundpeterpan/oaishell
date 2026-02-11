@@ -1,6 +1,9 @@
 # OAI-Shell
 
-**OAI-Shell** is a generic, configuration-driven terminal interface for any OpenAPI-compliant backend. It transforms an API specification into a fully interactive shell with tab-completion, state management, and custom commands.
+**OAI-Shell** is a vibecoded project—a generic, configuration-driven terminal interface for any OpenAPI-compliant backend. It transforms an API specification into a fully interactive shell with tab-completion, state management, and custom commands.
+
+## 🔮 The Vibe
+This project is **vibecoded**. It was built with AI agents, moving fast from concept to shell. It's experimental, stateful, and designed for those who want to interact with APIs at the speed of thought.
 
 ## 🚀 Key Features
 *   **Dynamic Discovery**: Connect to any URL and explore endpoints instantly.
