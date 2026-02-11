@@ -18,7 +18,7 @@ The system follows a modular pipeline:
 2.  **Engine**: Parses the spec, resolves `$ref` recursively, detects common path prefixes (e.g., `/api/v1/`), and manages HTTP calls.
 3.  **Payload Assembler & Schema Resolver**: Maps flat CLI flags (`--param`) to the correct OpenAPI location (Path, Query, Header, or Body) and handles nested dot-notation. Validates and extracts specific response fields using the same path notation.
 4.  **Shell/REPL**: Handles user input, provides context-aware completions, and renders the TUI (including a hierarchical API explorer).
-5.  **State Manager**: Persists variables (like `session_id`) and auto-injects them into subsequent requests.
+5.  **State Manager & Request Autofill**: Persists variables (like `session_id`) and automatically injects them into subsequent requests if they are missing from the command line.
 
 ## Directory Structure
 - `oai_shell/`: Root package.

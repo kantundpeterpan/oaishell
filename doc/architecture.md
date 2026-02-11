@@ -20,6 +20,7 @@ Loads the `oai-shell.yaml` file (if provided). It uses **Pydantic** models to va
 ### 3. The Payload Assembler (`oai_shell/engine/utils.py`)
 A specialized utility that bridges the gap between CLI flags and API requirements:
 *   **Mapping**: Uses the OpenAPI spec to decide if a flag like `--id` belongs in the URL path, the headers, or the JSON body.
+*   **Request Autofill**: Automatically looks up missing parameters in the `ClientState` (supporting both flat dot-notation and nested objects) and injects them into the payload.
 *   **Nesting**: Parses dot-notation (e.g., `--user.name`) into structured JSON objects.
 *   **Type Inference**: Automatically casts strings to integers, floats, or booleans.
 
