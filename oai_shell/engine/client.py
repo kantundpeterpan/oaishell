@@ -58,7 +58,45 @@ class OpenAIEngine:
 
     def _parse_spec(self):
         paths = self.spec.get("paths", {})
+        
+        # 1. Identify common prefix
+        common_prefix = ""
+        if paths:
+            path_list = list(paths.keys())
+            if len(path_list) > 1:
+                # Find longest common prefix among all paths
+                s1, s2 = min(path_list), max(path_list)
+                for i, c in enumerate(s1):
+                    if c != s2[i]:
+                        common_prefix = s1[:i]
+                        break
+                else:
+                    common_prefix = s1
+                
+                # Ensure we break at a slash boundary
+                if common_prefix and not common_prefix.endswith('/'):
+                    last_slash = common_prefix.rfind('/')
+                    if last_slash != -1:
+                        common_prefix = common_prefix[:last_slash+1]
+                    else:
+                        common_prefix = ""
+                
+                # Special case: if common_prefix is just "/", we treat it as no common prefix
+                if common_prefix == "/":
+                    common_prefix = ""
+            elif len(path_list) == 1:
+                # If only one path, we don't really have a "common" prefix to strip in a useful way
+                # unless it has multiple segments. But let's stick to 2+ for safety or just keep it.
+                pass
+
+        self.common_prefix = common_prefix
+
         for path, path_item in paths.items():
+            # Strip common prefix for internal representation
+            display_path = path[len(common_prefix):] if path.startswith(common_prefix) else path
+            if not display_path.startswith('/'):
+                display_path = '/' + display_path
+
             for method in ["get", "post", "put", "delete", "patch"]:
                 if method in path_item:
                     op = path_item[method]
@@ -66,6 +104,7 @@ class OpenAIEngine:
                     if op_id:
                         self.operations[op_id] = {
                             "path": path,
+                            "display_path": display_path,
                             "method": method.upper(),
                             "parameters": op.get("parameters", []),
                             "requestBody": op.get("requestBody"),

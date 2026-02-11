@@ -12,9 +12,13 @@ class StateConfig(BaseModel):
     auto_inject: List[str] = Field(default_factory=list)
     defaults: Dict[str, Any] = Field(default_factory=dict)
 
+class TUIConfig(BaseModel):
+    aggregation_depth: int = Field(default=1, ge=0)
+
 class ShellConfig(BaseModel):
     name: str = "OAI-Shell"
     openapi_url: str = "/openapi.json"
     base_url: Optional[str] = None
     commands: Dict[str, CommandConfig] = Field(default_factory=dict)
     state: StateConfig = Field(default_factory=StateConfig)
+    tui: TUIConfig = Field(default_factory=TUIConfig)

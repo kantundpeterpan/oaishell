@@ -153,20 +153,35 @@ class ShellRunner:
 
     def show_operations_tui(self):
         """Interactive hierarchical view of operations."""
+        depth = self.config.tui.aggregation_depth
         tag_groups: Dict[str, Dict[str, List[Tuple[str, Dict[str, Any]]]]] = {}
+        
         for op_id, op in self.engine.operations.items():
             tags = op["raw"].get("tags", ["default"])
             for tag in tags:
                 if tag not in tag_groups: tag_groups[tag] = {}
-                path = op["path"]
-                if path not in tag_groups[tag]: tag_groups[tag][path] = []
-                tag_groups[tag][path].append((op_id, op))
+                
+                # Use display_path (stripped of common prefix) for grouping
+                path = op.get("display_path", op["path"])
+                
+                # Apply aggregation depth
+                parts = path.strip('/').split('/')
+                if depth > 0 and len(parts) > depth:
+                    group_path = '/' + '/'.join(parts[:depth]) + '/...'
+                else:
+                    group_path = path
+                    
+                if group_path not in tag_groups[tag]: tag_groups[tag][group_path] = []
+                tag_groups[tag][group_path].append((op_id, op))
 
         # Build a stable structured list for state management
-        # Each item is a reference that we can toggle 'expanded' on
         structured = []
         for tag in sorted(tag_groups.keys()):
-            tag_item = {"type": "tag", "name": tag, "expanded": True}
+            display_tag = tag
+            if self.engine.common_prefix:
+                display_tag = f"{tag} [dim]({self.engine.common_prefix})[/dim]"
+            
+            tag_item = {"type": "tag", "name": tag, "display_name": display_tag, "expanded": True}
             structured.append(tag_item)
             paths = tag_groups[tag]
             for path in sorted(paths.keys()):
@@ -189,7 +204,7 @@ class ShellRunner:
                     if not item["expanded"]:
                         continue
                 elif item["type"] == "path":
-                    # Only show if parent tag is expanded (handled by loop logic)
+                    # Only show if parent tag is expanded
                     visible.append(item)
                     if item["expanded"]:
                         for op_id, op_data in item["ops"]:
@@ -198,17 +213,18 @@ class ShellRunner:
 
         try:
             input_stream = create_input()
-            # We must use raw_mode to capture keys without them being echoed
             with input_stream.raw_mode():
-                # We hide the cursor for a better TUI experience
                 console.show_cursor(False)
                 with Live(auto_refresh=False, console=console, transient=True) as live:
                     while True:
                         visible_items = get_visible_items()
                         selected_idx = max(0, min(selected_idx, len(visible_items) - 1))
                         
-                        # Build the renderable tree
-                        tree = Tree(f"[bold magenta]{self.config.name} API Explorer[/bold magenta] [dim](↑/↓ navigate, Space/Enter toggle, 'q' back)[/dim]")
+                        header = f"[bold magenta]{self.config.name} API Explorer[/bold magenta]"
+                        if self.engine.common_prefix:
+                            header += f" [dim](Prefix: {self.engine.common_prefix})[/dim]"
+                        
+                        tree = Tree(f"{header} [dim](↑/↓ navigate, Space/Enter toggle, 'q' back)[/dim]")
                         for idx, item in enumerate(visible_items):
                             is_sel = (idx == selected_idx)
                             prefix = "> " if is_sel else "  "
@@ -216,15 +232,18 @@ class ShellRunner:
 
                             if item["type"] == "tag":
                                 icon = "▼" if item["expanded"] else "▶"
-                                tree.add(f"{prefix}[bold cyan]{icon} {item['name']}[/bold cyan]", style=style)
+                                tree.add(f"{prefix}[bold cyan]{icon} {item['display_name']}[/bold cyan]", style=style)
                             elif item["type"] == "path":
                                 icon = "▼" if item["expanded"] else "▶"
                                 tree.add(f"  {prefix}[blue]{icon} {item['name']}[/blue]", style=style)
                             elif item["type"] == "op":
                                 op = item["op"]
                                 m = op["method"]
+                                display_path = op.get("display_path", op["path"])
                                 m_col = {"GET": "green", "POST": "yellow", "PUT": "blue", "DELETE": "red"}.get(m, "white")
-                                node = tree.add(f"    {prefix}[{m_col}]{m}[/{m_col}] [bold]{item['name']}[/bold]", style=style)
+                                # Show the full display path for the operation if it was grouped
+                                label = f"    {prefix}[{m_col}]{m}[/{m_col}] [bold]{item['name']}[/bold] [dim]{display_path}[/dim]"
+                                node = tree.add(label, style=style)
                                 if is_sel:
                                     all_params = self.engine.get_params_for_operation(item["name"])
                                     if all_params:
