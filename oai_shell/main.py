@@ -16,8 +16,7 @@ def main():
     parser.add_argument("--config", help="Path to oai-shell.yaml")
     parser.add_argument("--base-url", help="Override API base URL")
     parser.add_argument("--token", help="Bearer token")
-    parser.add_argument("--textual", action="store_true", help="Use Textual TUI interface (new)")
-    parser.add_argument("--legacy", action="store_true", help="Use legacy prompt-toolkit interface")
+    parser.add_argument("--legacy", action="store_true", help="Use legacy prompt-toolkit interface (old)")
     
     args = parser.parse_args()
 
@@ -38,17 +37,16 @@ def main():
         print(f"Discovering API at {base_url}{cfg.openapi_url}...")
         engine.discover(cfg.openapi_url)
 
-        # 4. Start Shell
-        if args.textual:
-            # Use new Textual TUI
-            app = OAIShellApp(cfg, engine)
-            app.run()
-        else:
-            # Use legacy prompt-toolkit interface (default for now)
-            if args.legacy:
-                print("Using legacy prompt-toolkit interface...")
+        # 4. Start Shell - Textual is now the default
+        if args.legacy:
+            # Use legacy prompt-toolkit interface
+            print("Using legacy prompt-toolkit interface...")
             runner = ShellRunner(cfg, engine)
             runner.run()
+        else:
+            # Use new Textual TUI (default)
+            app = OAIShellApp(cfg, engine)
+            app.run()
 
     except Exception as e:
         print(f"Fatal error: {e}")
