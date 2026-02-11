@@ -77,10 +77,6 @@ State variables should be accessible and writable in different ways:
 1) implement /state set <key> <value> and /state get <key>
 2) $state.key or {$state.key} should be availabe in the command line to access values currently stored in state
 
-## [P0] Request autofill
-
-Missing request parameters (path, body, query) should be looked up in state and used if found. This should be default behaviour and not needed to be configured in the yaml.
-Notificationi of parameter autofill should be similar to that of saving values to state from response.
 
 ## Autocomplete for custom slash commands
 
