@@ -106,8 +106,12 @@ class OperationsScreen(ModalScreen):
         border: thick $primary;
     }
     
-    #operations_tree {
+    #tree_container {
         width: 1fr;
+        height: 100%;
+    }
+    
+    #operations_tree {
         height: 100%;
         border: round $primary;
         background: $surface;
@@ -331,7 +335,7 @@ class OAIShellApp(App):
     """Textual TUI application for OAI-Shell."""
     
     CSS = """
-    Screen {
+    .main-screen {
         layout: grid;
         grid-size: 12 12;
         grid-rows: auto 1fr auto;
@@ -345,7 +349,7 @@ class OAIShellApp(App):
         column-span: 3;
         row-span: 10;
         height: 100%;
-        border: round $primary;
+        border:  $primary;
         padding: 1;
         background: $surface;
     }
@@ -474,6 +478,8 @@ class OAIShellApp(App):
     
     def on_mount(self) -> None:
         """Initialize the app when mounted."""
+        # Add a class to the screen to apply the layout, since id cannot be changed after initialization
+        self.screen.add_class("main-screen")
         output_log = self.query_one("#output_log", RichLog)
         output_log.write(
             Panel(
