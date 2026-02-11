@@ -24,7 +24,8 @@ You are an expert software architect and developer. Follow these steps to start 
 
 4. **Branching**:
    - Create a slug from the feature title (e.g., `call-selection-tui`).
-   - Create and checkout a new branch: `feature/<slug>`.
+   - Create a new branch: `feature/<slug>`.
+   - **Local Workspace**: Create a new git worktree for the feature using `git worktree add ../feature-<slug> feature/<slug>` to isolate development and maintain a clean main environment.
 
 5. **Backlog Refactoring**:
    - Remove the chosen feature section from the backlog file.
