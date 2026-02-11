@@ -1,6 +1,56 @@
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from ..engine.client import OpenAIEngine, ClientState
+
+class SchemaPathResolver:
+    """Utility to traverse JSON/Schema with a.b[0].c notation."""
+
+    @staticmethod
+    def resolve_data(data: Any, path: str) -> Any:
+        """Extracts data from a JSON object using dot and bracket notation."""
+        if not path:
+            return data
+            
+        # Tokenize: a.b[0].c -> ['a', 'b', '[0]', 'c']
+        tokens = re.findall(r'[^.\[\]]+|\[\d+\]', path)
+        curr = data
+        try:
+            for token in tokens:
+                if token.startswith('[') and token.endswith(']'):
+                    idx = int(token[1:-1])
+                    curr = curr[idx]
+                else:
+                    curr = curr[token]
+            return curr
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    @staticmethod
+    def validate_path(schema: Dict[str, Any], path: str, engine: OpenAIEngine) -> bool:
+        """Validates if a path exists within an OpenAPI schema."""
+        if not path:
+            return True
+            
+        tokens = re.findall(r'[^.\[\]]+|\[\d+\]', path)
+        curr = engine.resolve_schema(schema)
+        
+        try:
+            for token in tokens:
+                s_type = curr.get("type")
+                if token.startswith('[') and token.endswith(']'):
+                    if s_type != "array":
+                        return False
+                    curr = engine.resolve_schema(curr.get("items", {}))
+                else:
+                    if s_type != "object":
+                        return False
+                    props = curr.get("properties", {})
+                    if token not in props:
+                        return False
+                    curr = engine.resolve_schema(props[token])
+            return True
+        except (KeyError, AttributeError):
+            return False
 
 class PayloadAssembler:
     """Assembles API payloads from CLI input and state."""

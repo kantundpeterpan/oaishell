@@ -108,6 +108,7 @@ class OpenAIEngine:
                             "method": method.upper(),
                             "parameters": op.get("parameters", []),
                             "requestBody": op.get("requestBody"),
+                            "responses": op.get("responses", {}),
                             "summary": op.get("summary", ""),
                             "raw": op
                         }

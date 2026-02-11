@@ -6,6 +6,8 @@ class CommandConfig(BaseModel):
     description: Optional[str] = None
     mapping: Dict[str, str] = Field(default_factory=dict)
     after_call: Optional[Dict[str, Any]] = None
+    default_response_field: Optional[str] = None
+    force_response_field: bool = False
 
 class StateConfig(BaseModel):
     storage: Optional[str] = None

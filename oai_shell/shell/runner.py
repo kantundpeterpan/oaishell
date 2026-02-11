@@ -25,8 +25,11 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import InMemoryHistory
 
+from rich.layout import Layout
+from rich.syntax import Syntax
+
 from ..engine.client import OpenAIEngine, ClientState, EngineError
-from ..engine.utils import PayloadAssembler
+from ..engine.utils import PayloadAssembler, SchemaPathResolver
 from ..config.models import ShellConfig
 
 console = Console()
@@ -174,39 +177,24 @@ class ShellRunner:
             tags = op["raw"].get("tags", ["default"])
             for tag in tags:
                 if tag not in tag_groups: tag_groups[tag] = {}
-                
-                # Use display_path (stripped of common prefix) for grouping
                 path = op.get("display_path", op["path"])
-                
-                # Apply aggregation depth
                 parts = path.strip('/').split('/')
                 if depth > 0 and len(parts) > depth:
                     group_path = '/' + '/'.join(parts[:depth]) + '/...'
                 else:
                     group_path = path
-                    
                 if group_path not in tag_groups[tag]: tag_groups[tag][group_path] = []
                 tag_groups[tag][group_path].append((op_id, op))
 
-        # Build a stable structured list for state management
         structured = []
         for tag in sorted(tag_groups.keys()):
             display_tag = tag
             if self.engine.common_prefix:
                 display_tag = f"{tag} [dim]({self.engine.common_prefix})[/dim]"
-            
-            tag_item = {"type": "tag", "name": tag, "display_name": display_tag, "expanded": True}
-            structured.append(tag_item)
+            structured.append({"type": "tag", "name": tag, "display_name": display_tag, "expanded": True})
             paths = tag_groups[tag]
             for path in sorted(paths.keys()):
-                path_item = {
-                    "type": "path", 
-                    "name": path, 
-                    "tag": tag, 
-                    "expanded": False, 
-                    "ops": sorted(paths[path], key=lambda x: x[0])
-                }
-                structured.append(path_item)
+                structured.append({"type": "path", "name": path, "tag": tag, "expanded": False, "ops": sorted(paths[path], key=lambda x: x[0])})
 
         selected_idx = 0
 
@@ -215,15 +203,45 @@ class ShellRunner:
             for item in structured:
                 if item["type"] == "tag":
                     visible.append(item)
-                    if not item["expanded"]:
-                        continue
+                    if not item["expanded"]: continue
                 elif item["type"] == "path":
-                    # Only show if parent tag is expanded
                     visible.append(item)
                     if item["expanded"]:
                         for op_id, op_data in item["ops"]:
                             visible.append({"type": "op", "name": op_id, "op": op_data})
             return visible
+
+        def make_schema_view(op_id: str):
+            op = self.engine.operations.get(op_id)
+            if not op: return Panel("No operation selected")
+            
+            # Request Schema
+            req_group = []
+            params = self.engine.get_params_for_operation(op_id)
+            if params:
+                table = Table(title="Parameters", box=None, padding=0)
+                table.add_column("Name", style="cyan")
+                table.add_column("In", style="yellow")
+                table.add_column("Type", style="magenta")
+                for p in params:
+                    table.add_row(p["name"], p["in"], p["type"])
+                req_group.append(table)
+            
+            # Response Schema (200 OK)
+            res_200 = op.get("responses", {}).get("200", {})
+            res_content = res_200.get("content", {})
+            json_schema = res_content.get("application/json", {}).get("schema")
+            
+            res_view = "No response schema"
+            if json_schema:
+                res_view = Syntax(json.dumps(json_schema, indent=2), "json", theme="monokai", background_color="default")
+
+            layout = Layout()
+            layout.split_row(
+                Layout(Panel(Group(*req_group), title="Request Schema"), name="req"),
+                Layout(Panel(res_view, title="Response Schema (200 OK)"), name="res")
+            )
+            return layout
 
         try:
             input_stream = create_input()
@@ -235,14 +253,12 @@ class ShellRunner:
                         selected_idx = max(0, min(selected_idx, len(visible_items) - 1))
                         
                         header = f"[bold magenta]{self.config.name} API Explorer[/bold magenta]"
-                        if self.engine.common_prefix:
-                            header += f" [dim](Prefix: {self.engine.common_prefix})[/dim]"
+                        tree = Tree(f"{header} [dim](↑/↓, Space/Enter, 'q' back)[/dim]")
                         
-                        tree = Tree(f"{header} [dim](↑/↓ navigate, Space/Enter toggle, 'q' back)[/dim]")
                         for idx, item in enumerate(visible_items):
                             is_sel = (idx == selected_idx)
-                            prefix = "> " if is_sel else "  "
                             style = "reverse" if is_sel else ""
+                            prefix = "> " if is_sel else "  "
 
                             if item["type"] == "tag":
                                 icon = "▼" if item["expanded"] else "▶"
@@ -251,60 +267,43 @@ class ShellRunner:
                                 icon = "▼" if item["expanded"] else "▶"
                                 tree.add(f"  {prefix}[blue]{icon} {item['name']}[/blue]", style=style)
                             elif item["type"] == "op":
-                                op = item["op"]
-                                m = op["method"]
-                                display_path = op.get("display_path", op["path"])
+                                m = item["op"]["method"]
                                 m_col = {"GET": "green", "POST": "yellow", "PUT": "blue", "DELETE": "red"}.get(m, "white")
-                                # Show the full display path for the operation if it was grouped
-                                label = f"    {prefix}[{m_col}]{m}[/{m_col}] [bold]{item['name']}[/bold] [dim]{display_path}[/dim]"
-                                node = tree.add(label, style=style)
-                                if is_sel:
-                                    all_params = self.engine.get_params_for_operation(item["name"])
-                                    if all_params:
-                                        p_node = node.add("[dim]Parameters[/dim]")
-                                        for p in all_params:
-                                            p_node.add(f"[dim]{p['name']} ({p['type']})[/dim] [yellow]in:{p['in']}[/yellow]")
+                                tree.add(f"    {prefix}[{m_col}]{m}[/{m_col}] [bold]{item['name']}[/bold]", style=style)
 
-                        live.update(tree, refresh=True)
+                        main_layout = Layout()
+                        main_layout.split_row(
+                            Layout(Panel(tree), name="tree", ratio=1),
+                            Layout(name="details", ratio=2)
+                        )
+                        
+                        curr = visible_items[selected_idx]
+                        if curr["type"] == "op":
+                            main_layout["details"].update(make_schema_view(curr["name"]))
+                        else:
+                            main_layout["details"].update(Panel("Select an operation to view schemas", title="Details"))
 
-                        # Handle input with a short timeout to keep UI responsive but not spin
-                        # read_keys() is non-blocking in prompt_toolkit by default if nothing is in buffer
+                        live.update(main_layout, refresh=True)
+
                         keys = input_stream.read_keys()
                         for k in keys:
-                            if k.key == Keys.Up:
-                                selected_idx -= 1
-                            elif k.key == Keys.Down:
-                                selected_idx += 1
-                            elif k.key in (Keys.ControlM, " "): # Enter/Space
+                            if k.key == Keys.Up: selected_idx -= 1
+                            elif k.key == Keys.Down: selected_idx += 1
+                            elif k.key in (Keys.ControlM, " "):
                                 curr = visible_items[selected_idx]
                                 if curr["type"] in ("tag", "path"):
                                     curr["expanded"] = not curr["expanded"]
                                 elif curr["type"] == "op" and k.key == Keys.ControlM:
-                                    # Enter on operation -> Select for /call
                                     op_id = curr["name"]
                                     cmd = f"/call {op_id}"
-                                    
-                                    # Find required parameters not in state
                                     all_params = self.engine.get_params_for_operation(op_id)
-                                    required_missing = [
-                                        p["name"] for p in all_params 
-                                        if p.get("required") and self.state.get(p["name"]) is None
-                                    ]
-                                    
-                                    if required_missing:
-                                        for p_name in required_missing:
-                                            cmd += f" --{p_name} "
-                                    else:
-                                        cmd += " "
-                                        
-                                    return cmd
-                            elif k.key == "q" or k.key == Keys.ControlC:
-                                return
+                                    required_missing = [p["name"] for p in all_params if p.get("required") and self.state.get(p["name"]) is None]
+                                    for p_name in required_missing: cmd += f" --{p_name} "
+                                    return cmd + " "
+                            elif k.key == "q" or k.key == Keys.ControlC: return
                         time.sleep(0.05)
-        except Exception as e:
-            console.print(f"[red]TUI Error: {e}[/red]")
-        finally:
-            console.show_cursor(True)
+        except Exception as e: console.print(f"[red]TUI Error: {e}[/red]")
+        finally: console.show_cursor(True)
 
     def show_help(self):
         table = Table(title="Internal Commands")
@@ -338,17 +337,21 @@ class ShellRunner:
 
     def handle_call(self, args: List[str]):
         if not args:
-            console.print("[red]Usage: /call <operation_id> [--param value] [--stream][/red]")
+            console.print("[red]Usage: /call <operation_id> [--param value] [--stream] [--debug][/red]")
             return
         
         op_id = args[0]
         # Very basic flag parsing for now
         cli_params = {}
         stream = False
+        debug = False
         i = 1
         while i < len(args):
             if args[i] == "--stream":
                 stream = True
+                i += 1
+            elif args[i] == "--debug":
+                debug = True
                 i += 1
             elif args[i].startswith("--"):
                 key = args[i][2:]
@@ -360,20 +363,26 @@ class ShellRunner:
                     i += 1
             else: i += 1
 
-        self._execute_call(op_id, cli_params, stream=stream)
+        self._execute_call(op_id, cli_params, stream=stream, debug=debug)
 
     def handle_custom_command(self, cmd: str, args: List[str]):
         conf = self.config.commands[cmd]
         op_id = conf.operationId
         
+        # Check for --debug in args
+        debug = False
+        if "--debug" in args:
+            debug = True
+            args = [a for a in args if a != "--debug"]
+
         # Build params from mapping
         cli_params = {}
         for key, template in conf.mapping.items():
             cli_params[key] = self.assembler.resolve_value(template, args)
             
-        self._execute_call(op_id, cli_params)
+        self._execute_call(op_id, cli_params, debug=debug)
 
-    def _execute_call(self, op_id: str, cli_params: Dict[str, Any], stream: bool = False):
+    def _execute_call(self, op_id: str, cli_params: Dict[str, Any], stream: bool = False, debug: bool = False):
         # Auto-inject state
         for key in self.config.state.auto_inject:
             if key not in cli_params:
@@ -382,6 +391,21 @@ class ShellRunner:
 
         payload = self.assembler.assemble(op_id, cli_params)
         
+        # Get command config if exists
+        cmd_conf = next((c for k, c in self.config.commands.items() if c.operationId == op_id), None)
+        
+        # Validation of default_response_field
+        if cmd_conf and cmd_conf.default_response_field and not cmd_conf.force_response_field:
+            op = self.engine.operations.get(op_id)
+            if op:
+                resp_200 = op.get("responses", {}).get("200", {})
+                content = resp_200.get("content", {})
+                json_schema = content.get("application/json", {}).get("schema")
+                if json_schema:
+                    if not SchemaPathResolver.validate_path(json_schema, cmd_conf.default_response_field, self.engine):
+                        console.print(f"[red]Error:[/red] default_response_field '{cmd_conf.default_response_field}' does not conform to the schema for operation {op_id}. Use force_response_field: true to override.")
+                        return
+
         try:
             if stream:
                 with self.engine.call(op_id, stream=True, **payload) as resp:
@@ -393,22 +417,35 @@ class ShellRunner:
                 resp = self.engine.call(op_id, **payload)
                 data = resp.json()
                 
-                # Print response
-                console.print(Panel(json.dumps(data, indent=2), title="[bold blue]Response[/bold blue]"))
+                # Selective rendering
+                display_data = data
+                title = "[bold blue]Response[/bold blue]"
+                if cmd_conf and cmd_conf.default_response_field:
+                    resolved = SchemaPathResolver.resolve_data(data, cmd_conf.default_response_field)
+                    if resolved is not None:
+                        display_data = resolved
+                        title = f"[bold blue]Response: {cmd_conf.default_response_field}[/bold blue]"
+
+                # Rendering
+                if debug:
+                    group = Group(
+                        Panel(json.dumps(display_data, indent=2), title=title, border_style="green"),
+                        Panel(json.dumps(data, indent=2), title="[bold yellow]Raw Response (Debug)[/bold yellow]", border_style="dim")
+                    )
+                    console.print(group)
+                else:
+                    console.print(Panel(json.dumps(display_data, indent=2), title=title))
                 
                 # After call hooks
-                conf = next((c for k, c in self.config.commands.items() if c.operationId == op_id), None)
-                if conf and conf.after_call:
-                    save = conf.after_call.get("save_to_state", {})
+                if cmd_conf and cmd_conf.after_call:
+                    save = cmd_conf.after_call.get("save_to_state", {})
                     for state_key, path in save.items():
                         # Simple JSON path: "json:key" or "json:nested.key"
                         if path.startswith("json:"):
-                            key_path = path[5:].split('.')
-                            val = data
-                            try:
-                                for p in key_path: val = val[p]
+                            key_path = path[5:]
+                            val = SchemaPathResolver.resolve_data(data, key_path)
+                            if val is not None:
                                 self.state.update(**{state_key: val})
                                 console.print(f"[dim]State updated: {state_key}[/dim]")
-                            except: pass
         except EngineError as e:
             console.print(f"[red]API Error:[/red] {e}")

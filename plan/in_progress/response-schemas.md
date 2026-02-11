@@ -10,12 +10,12 @@ The `default_response_field` is to be validated against the Response schema, but
 
 # Progress
 - [x] Create branch `feature/response-schemas`
-- [ ] Update `oai_shell/engine/client.py` to capture response schemas
-- [ ] Update `oai_shell/config/models.py` to include `default_response_field`
-- [ ] Implement response field extraction with dot/bracket notation
-- [ ] Implement validation logic for `default_response_field`
-- [ ] Refactor `show_operations_tui` in `oai_shell/shell/runner.py` for three-panel layout
-- [ ] Add `--debug` flag and selective rendering in `_execute_call`
+- [x] Update `oai_shell/engine/client.py` to capture response schemas
+- [x] Update `oai_shell/config/models.py` to include `default_response_field`
+- [x] Implement response field extraction with dot/bracket notation
+- [x] Implement validation logic for `default_response_field`
+- [x] Refactor `show_operations_tui` in `oai_shell/shell/runner.py` for three-panel layout
+- [x] Add `--debug` flag and selective rendering in `_execute_call`
 
 # Technical Plan
 
