@@ -1,0 +1,84 @@
+name: "StopChat-Shell"
+base_url: "http://localhost:8000"
+openapi_url: "/openapi.json"
+
+# State management replicates the session persistence of the original client
+state:
+  storage: ".stopchat-state.json"
+  auto_inject:
+    - "user_id"
+    - "session_id"
+    - "monster"
+    - "language"
+  defaults:
+    monster: "betty"
+    language: "en"
+
+commands:
+  # Replicates /init [user_id] [monster] [language]
+  /init:
+    operationId: "initialize_chat_api_v1_chat_init_post"
+    description: "Initialize a new session"
+    mapping:
+      user_id: "$1"      # Positional: /init <user_id>
+      monster: "$2"      # Positional: /init <user_id> <monster>
+      language: "$3"
+    after_call:
+      save_to_state:
+        # Extracts session_id from the JSON response to persist it
+        session_id: "json:session_id"
+        user_id: "json:user_id"
+    default_response_field: "messages[0].content"
+
+  # Replicates /send <message>
+  /send:
+    operationId: "handle_message_api_v1_chat_post"
+    description: "Send a chat message"
+    mapping:
+      message: "$1"
+      user_id: "$STATE.user_id"
+      session_id: "$STATE.session_id"
+      monster: "$STATE.monster"
+      language: "$STATE.language"
+    after_call:
+      save_to_state:
+        session_id: "json:session_id"
+    default_response_field: "messages[0].content"
+
+  # Replicates /emotion <emotion>
+  /emotion:
+    operationId: "handle_emotion_selection_api_v1_chat_dropdown_post"
+    description: "Submit emotion selection"
+    mapping:
+      emotion: "$1"
+    default_response_field: "messages[0].content"
+
+  # Replicates /dropdown <selection>
+  /dropdown:
+    operationId: "handle_dropdown_selection_api_v1_chat_dropdown_post"
+    description: "Submit dropdown selection"
+    mapping:
+      selection: "$1"
+    default_response_field: "messages[0].content"
+
+  # Replicates /upload <file>
+  # /upload:
+  #   operationId: "upload_files_api_v1_files_upload_post"
+  #   description: "Upload files"
+  #   mapping:
+  #     files: "$1"
+
+  # # Replicates /delete-summary <user_id>
+  # /delete-summary:
+  #   operationId: "delete_user_summary_api_v1_chat_delete_post"
+  #   description: "Delete user summary"
+  #   mapping:
+  #     user_id: "$1"
+
+# TUI customization for better visual representation
+tui:
+  aggregation_depth: 2 # Groups by /api/v1/
+  type_icons:
+    string: "💬"
+    object: "📦"
+    array: "📋"
