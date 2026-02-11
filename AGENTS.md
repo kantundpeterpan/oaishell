@@ -16,7 +16,7 @@
 The system follows a modular pipeline:
 1.  **Discovery**: Fetches `openapi.json` from the target backend.
 2.  **Engine**: Parses the spec, resolves `$ref` recursively, detects common path prefixes (e.g., `/api/v1/`), and manages HTTP calls.
-3.  **Payload Assembler**: Maps flat CLI flags (`--param`) to the correct OpenAPI location (Path, Query, Header, or Body) and handles nested dot-notation.
+3.  **Payload Assembler & Schema Resolver**: Maps flat CLI flags (`--param`) to the correct OpenAPI location (Path, Query, Header, or Body) and handles nested dot-notation. Validates and extracts specific response fields using the same path notation.
 4.  **Shell/REPL**: Handles user input, provides context-aware completions, and renders the TUI (including a hierarchical API explorer).
 5.  **State Manager**: Persists variables (like `session_id`) and auto-injects them into subsequent requests.
 
@@ -25,7 +25,7 @@ The system follows a modular pipeline:
     - `main.py`: Entry point for the CLI.
     - `engine/`:
         - `client.py`: `OpenAIEngine` (HTTP logic, spec parsing, $ref resolution) and `ClientState`.
-        - `utils.py`: `PayloadAssembler` (mapping CLI flags to JSON payloads).
+        - `utils.py`: `PayloadAssembler` and `SchemaPathResolver` (dot-notation traversal for payloads and validation).
     - `config/`:
         - `manager.py`: Config loading logic.
         - `models.py`: Pydantic schemas for `oai-shell.yaml`.

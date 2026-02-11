@@ -28,16 +28,28 @@ commands:
     after_call:
       save_to_state:
         token: "json:access_token"
+    default_response_field: "access_token" # Only show this field by default
 
 # TUI Customization
 tui:
   aggregation_depth: 1 # Depth for grouping paths in /operations-tui
+  type_icons:
+    string: "📝" # Override default icons
 ```
 
 ## 📄 Configuration Reference
 
+### Command Config
+*   `operationId`: (String) The OpenAPI operation ID to call.
+*   `description`: (String) Description shown in `/help`.
+*   `mapping`: (Dict) Map CLI/State variables to OpenAPI parameters.
+*   `after_call`: (Dict) Hooks to run after a successful call. Supports `save_to_state`.
+*   `default_response_field`: (String) Dot-notation path to the field that should be shown by default in the response panel. Supports nested objects and arrays (e.g., `data[0].id`).
+*   `force_response_field`: (Boolean) Disable schema validation for `default_response_field`.
+
 ### TUI
 *   `aggregation_depth`: (Integer) Controls how paths are grouped in the interactive explorer. A depth of 1 groups by the first segment (e.g., `/users/*`). Set to 0 to disable path grouping.
+*   `type_icons`: (Dict) Custom icons for data types in schema trees (`object`, `array`, `string`, `integer`, `number`, `boolean`).
 
 ### State
 *   `storage`: File path for persisting state between sessions.
