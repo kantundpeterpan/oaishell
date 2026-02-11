@@ -4,7 +4,8 @@ Response schemas should also be discovered and shown in the shell / CLI, e.g. in
 The `default_response_field` is to be validated against the Response schema, but an override setting should exist.
 
 ## Clarifications & Constraints
-- **TUI Layout**: The `/operations-tui` should have a three-panel layout: Tree on the left, Request Schema and Response Schema on the right (stacked or side-by-side).
+- **TUI Layout**: The `/operations-tui** Interactive explorer now has a three-panel layout: Tree (left), Request (top-right), and Response (bottom-right).
+- **Visualization**: Both Request (Parameters + Body) and Response now use a hierarchical Tree view with indentation, types, and descriptions.
 - **Validation**: `default_response_field` is validated against the schema. Non-conformity raises an error unless forcefully overridden.
 - **Notation**: Standard dot-notation for nested objects (`obj.prop`) and bracket notation for arrays (`arr[0]`). Combined usage supported: `nested_obj.prop[0]`.
 
@@ -16,6 +17,13 @@ The `default_response_field` is to be validated against the Response schema, but
 - [x] Implement validation logic for `default_response_field`
 - [x] Refactor `show_operations_tui` in `oai_shell/shell/runner.py` for three-panel layout
 - [x] Add `--debug` flag and selective rendering in `_execute_call`
+- [x] Improve TUI schema panels:
+    - [x] Use hierarchical (indented) tree view for both Request and Response schemas
+    - [x] Better column distribution in Request schema
+    - [x] Resolve and display response schema properties instead of raw $ref JSON
+- [x] Improve validation feedback:
+    - [x] Warn at startup if `default_response_field` cannot be validated due to missing schema
+    - [x] Flag/Warn if `default_response_field` extraction fails during response processing
 
 # Technical Plan
 
@@ -35,8 +43,11 @@ The `default_response_field` is to be validated against the Response schema, but
     - Left: Operations Tree.
     - Top Right: Request Schema (parameters + body).
     - Bottom Right: Response Schema (200 OK schema).
+    - Use `rich.tree.Tree` for hierarchical visualization of both request and response.
 
 5. **Execution Updates**:
     - Update `_execute_call` to check for `--debug`.
     - If `default_response_field` is set, extract it.
     - Display in a `Panel`. If debug is on, show both panels.
+    - Add startup warnings for missing schemas.
+    - Add runtime warnings for missing fields.

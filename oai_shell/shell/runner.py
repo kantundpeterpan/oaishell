@@ -112,6 +112,20 @@ class ShellRunner:
         if not self.engine.operations:
             console.print("[yellow]Warning: No operations discovered yet.[/yellow]")
 
+        # Validate configured commands at startup
+        for cmd_name, cmd_conf in self.config.commands.items():
+            if cmd_conf.default_response_field:
+                op = self.engine.operations.get(cmd_conf.operationId)
+                if not op:
+                    console.print(f"[dim yellow]Info: Command '{cmd_name}' targets unknown operation '{cmd_conf.operationId}'. Validation skipped.[/dim yellow]")
+                    continue
+                
+                resp_200 = op.get("responses", {}).get("200", {})
+                content = resp_200.get("content", {})
+                json_schema = content.get("application/json", {}).get("schema")
+                if not json_schema:
+                    console.print(f"[dim yellow]Info: Command '{cmd_name}' has default_response_field but no 200 OK JSON schema found. Validation skipped.[/dim yellow]")
+
         next_prompt_default = ""
 
         while True:
@@ -159,6 +173,35 @@ class ShellRunner:
                 console.print(f"[yellow]Unknown command: {cmd}[/yellow]")
         else:
             console.print("[dim]Use /command or /call. Type /help for list.[/dim]")
+
+    def _build_schema_tree(self, schema: Dict[str, Any], tree: Optional[Tree] = None, name: str = "root") -> Tree:
+        """Recursively builds a Rich Tree from an OpenAPI schema."""
+        schema = self.engine.resolve_schema(schema)
+        s_type = schema.get("type", "object")
+        description = schema.get("description", "")
+        
+        label = f"[bold cyan]{name}[/bold cyan] [dim]({s_type})[/dim]"
+        if description:
+            label += f" - [italic]{description}[/italic]"
+            
+        if tree is None:
+            res_tree = Tree(label)
+        else:
+            res_tree = tree.add(label)
+            
+        if s_type == "object":
+            props = schema.get("properties", {})
+            required = schema.get("required", [])
+            for p_name, p_schema in props.items():
+                p_label = p_name
+                if p_name in required:
+                    p_label = f"[bold]{p_name}*[/bold]"
+                self._build_schema_tree(p_schema, res_tree, p_label)
+        elif s_type == "array":
+            items = schema.get("items", {})
+            self._build_schema_tree(items, res_tree, "items[]")
+            
+        return res_tree
 
     def show_state(self):
         table = Table(title="Current State")
@@ -215,31 +258,51 @@ class ShellRunner:
             op = self.engine.operations.get(op_id)
             if not op: return Panel("No operation selected")
             
-            # Request Schema
-            req_group = []
-            params = self.engine.get_params_for_operation(op_id)
+            # Request Panel
+            req_content = []
+            
+            # 1. Standard Parameters
+            params = []
+            for p in op.get("parameters", []):
+                params.append({
+                    "name": p["name"],
+                    "in": p.get("in", "query"),
+                    "type": p.get("schema", {}).get("type", "string"),
+                    "required": p.get("required", False)
+                })
+            
             if params:
-                table = Table(title="Parameters", box=None, padding=0)
-                table.add_column("Name", style="cyan")
-                table.add_column("In", style="yellow")
-                table.add_column("Type", style="magenta")
+                table = Table(title="Parameters", box=None, padding=(0, 1), expand=True)
+                table.add_column("Name", style="cyan", ratio=2)
+                table.add_column("In", style="yellow", ratio=1)
+                table.add_column("Type", style="magenta", ratio=1)
                 for p in params:
-                    table.add_row(p["name"], p["in"], p["type"])
-                req_group.append(table)
-            
-            # Response Schema (200 OK)
+                    name = f"[bold]{p['name']}*[/bold]" if p["required"] else p["name"]
+                    table.add_row(name, p["in"], p["type"])
+                req_content.append(table)
+
+            # 2. Request Body
+            body = op.get("requestBody")
+            if body:
+                content = body.get("content", {})
+                json_schema = content.get("application/json", {}).get("schema")
+                if json_schema:
+                    req_content.append(self._build_schema_tree(json_schema, name="RequestBody (JSON)"))
+
+            # Response Panel
             res_200 = op.get("responses", {}).get("200", {})
-            res_content = res_200.get("content", {})
-            json_schema = res_content.get("application/json", {}).get("schema")
+            res_content_spec = res_200.get("content", {})
+            res_json_schema = res_content_spec.get("application/json", {}).get("schema")
             
-            res_view = "No response schema"
-            if json_schema:
-                res_view = Syntax(json.dumps(json_schema, indent=2), "json", theme="monokai", background_color="default")
+            if res_json_schema:
+                res_view = self._build_schema_tree(res_json_schema, name="Response (200 OK)")
+            else:
+                res_view = Panel("No response schema (application/json) found for 200 OK", border_style="dim")
 
             layout = Layout()
             layout.split_row(
-                Layout(Panel(Group(*req_group), title="Request Schema"), name="req"),
-                Layout(Panel(res_view, title="Response Schema (200 OK)"), name="res")
+                Layout(Panel(Group(*req_content), title="Request"), name="req"),
+                Layout(Panel(res_view, title="Response"), name="res")
             )
             return layout
 
@@ -425,6 +488,8 @@ class ShellRunner:
                     if resolved is not None:
                         display_data = resolved
                         title = f"[bold blue]Response: {cmd_conf.default_response_field}[/bold blue]"
+                    else:
+                        console.print(f"[yellow]Warning: Field '{cmd_conf.default_response_field}' not found in the response payload.[/yellow]")
 
                 # Rendering
                 if debug:

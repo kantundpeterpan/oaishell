@@ -36,9 +36,15 @@ def get_user(user_id: str = Path(...)):
     return {"id": user_id, "name": f"User {user_id}", "role": "admin"}
 
 # 4. Nested Body & Type Inference Test
+
+class ItemResponse(BaseModel):
+
+    message: str = "message"
+    received: Item
+
 @app.post("/items")
-def create_item(item: Item):
-    return {"message": "Item created", "received": item}
+def create_item(item: Item) -> ItemResponse:
+    return ItemResponse(received = Item)
 
 # 5. Query & Header Test
 @app.get("/search")
