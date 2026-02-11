@@ -4,18 +4,6 @@
 
 It should be possible to define default command in the yaml which is called each time on ENTER. This could be either an API method or a custum defined method.
 
-## [P1] Response formatting
-
-conditional/optional extraction
-
-arbitrary combintaions of response fields, each of which can be formatted in a nice and different way
-
-- tables
-- markdown
-- selections
-
-- Response panel header
-
 ## Ctrl-C for commandline clearing, double for exiting
 
 Ctrl-C should result in clearing the command line, double Ctrl-C in exti

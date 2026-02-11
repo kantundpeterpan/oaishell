@@ -19,10 +19,10 @@ commands:
   /init:
     operationId: "initialize_chat_api_v1_chat_init_post"
     description: "Initialize a new session"
-    mapping:
-      user_id: "$1"      # Positional: /init <user_id>
-      monster: "$2"      # Positional: /init <user_id> <monster>
-      language: "$3"
+    # mapping:
+    #   user_id: "$1"      # Positional: /init <user_id>
+    #   monster: "$2"      # Positional: /init <user_id> <monster>
+    #   language: "$3"
     after_call:
       save_to_state:
         # Extracts session_id from the JSON response to persist it
