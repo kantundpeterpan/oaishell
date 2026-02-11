@@ -26,7 +26,7 @@ A specialized utility that bridges the gap between CLI flags and API requirement
 ### 4. The Shell Runner (`oai_shell/shell/runner.py`)
 The UI layer built on `prompt_toolkit`. It provides:
 *   **The REPL**: Persistent command loop with history.
-*   **Interactive Explorer**: Hierarchical TUI (`/operations-tui`) for browsing the API. Supports configurable path aggregation for cleaner navigation.
+*   **Interactive Explorer**: Hierarchical TUI (`/operations-tui`) for browsing the API. Supports configurable path aggregation and direct call selection (press ENTER on an operation to prepare a `/call` command).
 *   **Autocomplete**: Context-aware suggestions for commands, operation IDs, and nested body parameters.
 *   **Output Rendering**: Uses `rich` for beautiful JSON and Markdown formatting.
 
