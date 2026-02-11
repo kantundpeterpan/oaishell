@@ -33,7 +33,13 @@ The system follows a modular pipeline:
         - `runner.py`: `ShellRunner` (REPL loop, TUI navigation, `/operations-tui`).
 - `examples/`: Sample configuration files (e.g., `stopchat.yaml`).
 - `tests/`: Unit tests and a `dummy_server.py` (FastAPI) for integration testing.
-- `doc/`: Architectural and configuration documentation.
+- `plan/`: Development roadmap and feature tracking.
+    - `features.md`: Backlog of planned features.
+    - `in_progress/`: Tracking files for features currently under development.
+    - `implemented/`: Archived tracking files for completed features.
+- `.continue/`: Agentic workflows and local rules.
+    - `agents/`: Custom AI agents (e.g., `feature-orchestrator.md`).
+    - `rules/`: Coding standards and review guidelines.
 
 ## Development Workflow
 - **Run**: `python3 oai_shell/main.py --base-url <url>`
