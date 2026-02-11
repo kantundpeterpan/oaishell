@@ -26,19 +26,20 @@ commands:
     description: List all users in a table
     formatting:
       title: "👥 User Directory"
-      layout: "table"
-      fields:
-        - path: "id"
-          label: "ID"
-          style: "dim"
-        - path: "username"
-          label: "Username"
-          style: "bold green"
-        - path: "email"
-          label: "Email"
-        - path: "is_active"
-          label: "Active"
-          style: "magenta"
+      blocks:
+        - layout: "table"
+          fields:
+          - path: "id"
+            label: "ID"
+            style: "dim"
+          - path: "username"
+            label: "Username"
+            style: "bold green"
+          - path: "email"
+            label: "Email"
+          - path: "is_active"
+            label: "Active"
+            style: "magenta"
 
   /docs:
     operationId: get_docs_docs__topic__get
