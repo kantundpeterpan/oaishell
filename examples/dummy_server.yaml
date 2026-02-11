@@ -1,0 +1,23 @@
+name: "OAI Dummy Server"
+base_url: "http://localhost:8001"
+openapi_url: "/openapi.json"
+
+# State management
+state:
+  storage: ".session-state.json"
+  auto_inject:
+    - "access_token" # Automatically send this if the API needs it
+  defaults:
+    language: "en"
+
+# Custom Slash Commands
+commands:
+  /login:
+    operationId: "login_auth_login_post"
+    description: "Authenticate with the server"
+    mapping:
+      username: "$1" # First argument after /login
+      password: "$2" # Second argument
+    after_call:
+      save_to_state:
+        access_token: "json:access_token"
