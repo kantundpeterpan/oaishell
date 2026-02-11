@@ -29,7 +29,12 @@ The UI layer built on `prompt_toolkit`. It provides:
 *   **The REPL**: Persistent command loop with history.
 *   **Interactive Explorer**: Hierarchical TUI (`/operations-tui`) for browsing the API. Supports configurable path aggregation and direct call selection (press ENTER on an operation to prepare a `/call` command).
 *   **Autocomplete**: Context-aware suggestions for commands, operation IDs, and nested body parameters.
-*   **Output Rendering**: Uses `rich` for beautiful JSON and Markdown formatting.
+
+### 5. The Response Renderer (`oai_shell/shell/runner.py`)
+A modular system that transforms raw JSON into human-readable TUI blocks:
+*   **Block-Based Rendering**: Supports multiple sections per command, each targeting a different part of the JSON response.
+*   **Layouts**: Render data as styled lists, tables, syntax-highlighted JSON, or Markdown.
+*   **Path Resolution**: Uses dot-notation to extract and focus on specific sub-trees of the response.
 
 ---
 *Back to [Index](index.md)*

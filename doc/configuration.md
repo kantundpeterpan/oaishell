@@ -28,7 +28,22 @@ commands:
     after_call:
       save_to_state:
         token: "json:access_token"
-    default_response_field: "access_token" # Only show this field by default
+    formatting: # Advanced block-based rendering
+      title: "User Profile"
+      blocks:
+        - title: "Account Info"
+          layout: "list"
+          fields:
+            - path: "user.name"
+              label: "Name"
+              style: "bold green"
+            - path: "user.id"
+              label: "ID"
+              style: "dim"
+        - title: "Bio"
+          path: "user.bio"
+          layout: "markdown"
+    default_response_field: "access_token" # Legacy fallback (extracts one field)
 
 # TUI Customization
 tui:
@@ -44,7 +59,19 @@ tui:
 *   `description`: (String) Description shown in `/help`.
 *   `mapping`: (Dict) Map CLI/State variables to OpenAPI parameters.
 *   `after_call`: (Dict) Hooks to run after a successful call. Supports `save_to_state`.
-*   `default_response_field`: (String) Dot-notation path to the field that should be shown by default in the response panel. Supports nested objects and arrays (e.g., `data[0].id`).
+*   `formatting`: (Object) Advanced block-based rendering configuration.
+    *   `title`: (String) Header for the response panel.
+    *   `blocks`: (List) List of rendering blocks.
+        *   `title`: (String) Optional block title.
+        *   `path`: (String) Root path for this block's data.
+        *   `layout`: (String) `list`, `table`, `markdown`, or `json`.
+        *   `fields`: (List) List of fields to show (for `list` and `table`).
+            *   `path`: (String) Relative path to the data.
+            *   `label`: (String) Custom label.
+            *   `style`: (String) `rich` style (e.g., `bold cyan`).
+            *   `format`: (String) `text`, `json`, or `markdown`.
+            *   `optional`: (Boolean) Hide if data is missing.
+*   `default_response_field`: (String) Legacy dot-notation path to the field that should be shown by default.
 *   `force_response_field`: (Boolean) Disable schema validation for `default_response_field`.
 
 ### TUI
