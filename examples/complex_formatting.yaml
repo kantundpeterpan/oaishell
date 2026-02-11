@@ -1,0 +1,66 @@
+name: Dummy-Complex-Formatting
+base_url: http://localhost:8001
+openapi_url: /openapi.json
+
+commands:
+  /users-complex:
+    operationId: list_users_users_get
+    description: List all users with a summary block and a table
+    formatting:
+      title: "👥 User Management"
+      blocks:
+        - title: "System Info"
+          layout: "list"
+          fields:
+            - path: ""
+              label: "Count"
+              # This is a bit of a hack since /users returns a list, 
+              # but demonstrates block separation
+        - title: "Active Users"
+          layout: "table"
+          fields:
+            - path: "username"
+              label: "User"
+              style: "bold green"
+            - path: "email"
+              label: "Email"
+            - path: "is_active"
+              label: "Status"
+
+  /docs-styled:
+    operationId: get_docs_docs__topic__get
+    description: Documentation with metadata and content blocks
+    mapping:
+      topic: "$1"
+    formatting:
+      title: "📖 Documentation Hub"
+      blocks:
+        - title: "Metadata"
+          layout: "list"
+          fields:
+            - path: "topic"
+              label: "Subject"
+              style: "bold cyan"
+        - title: "Content"
+          layout: "markdown"
+          path: "content"
+
+  /search-results:
+    operationId: search_search_get
+    description: Search results with query info and raw json block
+    mapping:
+      q: "$1"
+      X-API-Key: "secret-key"
+    formatting:
+      title: "🔍 Search Details"
+      blocks:
+        - title: "Parameters"
+          layout: "list"
+          fields:
+            - path: "query"
+              label: "Query String"
+            - path: "limit"
+              label: "Result Limit"
+        - title: "Raw Response"
+          layout: "json"
+          path: ""

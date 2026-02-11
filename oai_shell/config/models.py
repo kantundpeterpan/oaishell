@@ -1,6 +1,24 @@
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 
+class FieldConfig(BaseModel):
+    path: str
+    label: Optional[str] = None
+    style: Optional[str] = None
+    format: str = "text"  # text, json, markdown
+    optional: bool = False
+
+class FormattingBlockConfig(BaseModel):
+    title: Optional[str] = None
+    path: str = ""
+    layout: str = "list"  # list, table, markdown, json
+    fields: List[FieldConfig] = Field(default_factory=list)
+    optional: bool = False
+
+class ResponseFormattingConfig(BaseModel):
+    title: Optional[str] = None
+    blocks: List[FormattingBlockConfig] = Field(default_factory=list)
+
 class CommandConfig(BaseModel):
     operationId: str
     description: Optional[str] = None
@@ -8,6 +26,7 @@ class CommandConfig(BaseModel):
     after_call: Optional[Dict[str, Any]] = None
     default_response_field: Optional[str] = None
     force_response_field: bool = False
+    formatting: Optional[ResponseFormattingConfig] = None
 
 class StateConfig(BaseModel):
     storage: Optional[str] = None

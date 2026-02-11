@@ -26,6 +26,7 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import InMemoryHistory
 
 from rich.layout import Layout
+from rich.markdown import Markdown
 from rich.syntax import Syntax
 
 from ..engine.client import OpenAIEngine, ClientState, EngineError
@@ -92,6 +93,94 @@ class OAIShellCompleter(Completer):
                     if "stream".startswith(prefix.lower()):
                         yield Completion("--stream", start_position=-len(current_word))
 
+class ResponseRenderer:
+    def __init__(self, console: Console):
+        self.console = console
+
+    def render(self, data: Any, config: Optional[Any], debug: bool = False):
+        if not config:
+            self._render_json(data, "[bold blue]Response[/bold blue]", debug)
+            return
+
+        title = config.title or "[bold blue]Response[/bold blue]"
+        
+        blocks_content = []
+        for block in config.blocks:
+            block_data = SchemaPathResolver.resolve_data(data, block.path)
+            if block_data is None:
+                if block.optional: continue
+                block_data = {} # Fallback
+
+            if block.title:
+                blocks_content.append(f"[bold underline]{block.title}[/bold underline]")
+
+            if block.layout == "table":
+                blocks_content.append(self._get_table(block_data, block.fields))
+            elif block.layout == "markdown":
+                blocks_content.append(Markdown(str(block_data)))
+            elif block.layout == "json":
+                blocks_content.append(Syntax(json.dumps(block_data, indent=2), "json", background_color="default"))
+            else:
+                blocks_content.extend(self._get_list_items(block_data, block.fields))
+            
+            # Add spacing between blocks
+            blocks_content.append("")
+
+        self.console.print(Panel(Group(*blocks_content), title=title))
+
+        if debug:
+            self.console.print(Panel(json.dumps(data, indent=2), title="[bold yellow]Raw Response (Debug)[/bold yellow]", border_style="dim"))
+
+    def _render_json(self, data: Any, title: str, debug: bool = False):
+        self.console.print(Panel(json.dumps(data, indent=2), title=title))
+
+    def _get_list_items(self, data: Any, fields: List[Any]) -> List[Any]:
+        items = []
+        for field in fields:
+            val = SchemaPathResolver.resolve_data(data, field.path)
+            if val is None and field.optional:
+                continue
+            
+            label = field.label or field.path
+            rendered_val = self._format_value(val, field.format, field.style)
+            
+            if field.format == "text":
+                items.append(f"[bold]{label}:[/bold] {rendered_val}")
+            else:
+                items.append(f"[bold]{label}:[/bold]")
+                items.append(rendered_val)
+        return items
+
+    def _get_table(self, data: Any, fields: List[Any]) -> Table:
+        # Data should be a list for table layout
+        rows = data if isinstance(data, list) else [data]
+        
+        table = Table(box=None, padding=(0, 1))
+        for field in fields:
+            table.add_column(field.label or field.path, style=field.style)
+
+        for row in rows:
+            row_vals = []
+            for field in fields:
+                val = SchemaPathResolver.resolve_data(row, field.path)
+                row_vals.append(str(val) if val is not None else "")
+            table.add_row(*row_vals)
+        return table
+
+    def _format_value(self, val: Any, format_type: str, style: Optional[str]) -> Any:
+        if val is None:
+            return "[dim]null[/dim]"
+        
+        if format_type == "json":
+            return Syntax(json.dumps(val, indent=2), "json", background_color="default")
+        elif format_type == "markdown":
+            return Markdown(str(val))
+        else:
+            res = str(val)
+            if style:
+                res = f"[{style}]{res}[/{style}]"
+            return res
+
 class ShellRunner:
     def __init__(self, config: ShellConfig, engine: OpenAIEngine):
         self.config = config
@@ -100,6 +189,7 @@ class ShellRunner:
         # Load defaults into state
         self.state.update(**config.state.defaults)
         self.assembler = PayloadAssembler(self.engine, self.state)
+        self.renderer = ResponseRenderer(console)
         self.session = PromptSession(
             completer=OAIShellCompleter(self.engine, self.config),
             history=InMemoryHistory()
@@ -114,17 +204,42 @@ class ShellRunner:
 
         # Validate configured commands at startup
         for cmd_name, cmd_conf in self.config.commands.items():
-            if cmd_conf.default_response_field:
-                op = self.engine.operations.get(cmd_conf.operationId)
-                if not op:
-                    console.print(f"[dim yellow]Info: Command '{cmd_name}' targets unknown operation '{cmd_conf.operationId}'. Validation skipped.[/dim yellow]")
-                    continue
-                
+            op = self.engine.operations.get(cmd_conf.operationId)
+            if not op:
+                console.print(f"[dim yellow]Info: Command '{cmd_name}' targets unknown operation '{cmd_conf.operationId}'. Validation skipped.[/dim yellow]")
+                continue
+
+            # 1. Validate default_response_field
+            if cmd_conf.default_response_field and not cmd_conf.force_response_field:
                 resp_200 = op.get("responses", {}).get("200", {})
                 content = resp_200.get("content", {})
                 json_schema = content.get("application/json", {}).get("schema")
-                if not json_schema:
+                if json_schema:
+                    if not SchemaPathResolver.validate_path(json_schema, cmd_conf.default_response_field, self.engine):
+                        console.print(f"[yellow]Warning:[/yellow] Command '{cmd_name}' has default_response_field '{cmd_conf.default_response_field}' which may not exist in the schema.")
+                else:
                     console.print(f"[dim yellow]Info: Command '{cmd_name}' has default_response_field but no 200 OK JSON schema found. Validation skipped.[/dim yellow]")
+
+            # 2. Validate formatting blocks
+            if cmd_conf.formatting and not cmd_conf.force_response_field:
+                resp_200 = op.get("responses", {}).get("200", {})
+                content = resp_200.get("content", {})
+                json_schema = content.get("application/json", {}).get("schema")
+                if json_schema:
+                    for block in cmd_conf.formatting.blocks:
+                        # Resolve path to the block's root
+                        block_schema = json_schema
+                        if block.path:
+                            # We might need a SchemaPathResolver.get_sub_schema but for now we validate paths from root
+                            # if block.path != "": 
+                            #   ...
+                            pass
+                        
+                        for field in block.fields:
+                            full_path = f"{block.path}.{field.path}" if block.path and field.path else (block.path or field.path)
+                            if full_path == "": continue
+                            if not SchemaPathResolver.validate_path(json_schema, full_path, self.engine):
+                                console.print(f"[yellow]Warning:[/yellow] Command '{cmd_name}' formatting block path '{full_path}' may not exist in the schema.")
 
         next_prompt_default = ""
 
@@ -494,26 +609,29 @@ class ShellRunner:
                 resp = self.engine.call(op_id, **payload)
                 data = resp.json()
                 
-                # Selective rendering
-                display_data = data
-                title = "[bold blue]Response[/bold blue]"
-                if cmd_conf and cmd_conf.default_response_field:
-                    resolved = SchemaPathResolver.resolve_data(data, cmd_conf.default_response_field)
-                    if resolved is not None:
-                        display_data = resolved
-                        title = f"[bold blue]Response: {cmd_conf.default_response_field}[/bold blue]"
-                    else:
-                        console.print(f"[yellow]Warning: Field '{cmd_conf.default_response_field}' not found in the response payload.[/yellow]")
-
-                # Rendering
-                if debug:
-                    group = Group(
-                        Panel(json.dumps(display_data, indent=2), title=title, border_style="green"),
-                        Panel(json.dumps(data, indent=2), title="[bold yellow]Raw Response (Debug)[/bold yellow]", border_style="dim")
-                    )
-                    console.print(group)
+                # Rendering using the new ResponseRenderer
+                if cmd_conf and cmd_conf.formatting:
+                    self.renderer.render(data, cmd_conf.formatting, debug=debug)
                 else:
-                    console.print(Panel(json.dumps(display_data, indent=2), title=title))
+                    # Legacy support / Default fallback
+                    display_data = data
+                    title = "[bold blue]Response[/bold blue]"
+                    if cmd_conf and cmd_conf.default_response_field:
+                        resolved = SchemaPathResolver.resolve_data(data, cmd_conf.default_response_field)
+                        if resolved is not None:
+                            display_data = resolved
+                            title = f"[bold blue]Response: {cmd_conf.default_response_field}[/bold blue]"
+                        else:
+                            console.print(f"[yellow]Warning: Field '{cmd_conf.default_response_field}' not found in the response payload.[/yellow]")
+
+                    if debug:
+                        group = Group(
+                            Panel(json.dumps(display_data, indent=2), title=title, border_style="green"),
+                            Panel(json.dumps(data, indent=2), title="[bold yellow]Raw Response (Debug)[/bold yellow]", border_style="dim")
+                        )
+                        console.print(group)
+                    else:
+                        console.print(Panel(json.dumps(display_data, indent=2), title=title))
                 
                 # After call hooks
                 if cmd_conf and cmd_conf.after_call:

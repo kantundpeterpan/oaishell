@@ -1,0 +1,63 @@
+name: Dummy-Formatting-Test
+base_url: http://localhost:8001
+openapi_url: /openapi.json
+
+commands:
+  /profile:
+    operationId: get_user_users__user_id__get
+    description: Get a user's profile with structured formatting
+    mapping:
+      user_id: "$1"
+    formatting:
+      title: "👤 User Profile"
+      fields:
+        - path: "name"
+          label: "Display Name"
+          style: "bold cyan"
+        - path: "role"
+          label: "Access Level"
+          style: "italic yellow"
+        - path: "id"
+          label: "Internal ID"
+          optional: true
+
+  /users:
+    operationId: list_users_users_get
+    description: List all users in a table
+    formatting:
+      title: "👥 User Directory"
+      layout: "table"
+      fields:
+        - path: "id"
+          label: "ID"
+          style: "dim"
+        - path: "username"
+          label: "Username"
+          style: "bold green"
+        - path: "email"
+          label: "Email"
+        - path: "is_active"
+          label: "Active"
+          style: "magenta"
+
+  /docs:
+    operationId: get_docs_docs__topic__get
+    description: View documentation for a topic with markdown rendering
+    mapping:
+      topic: "$1"
+    formatting:
+      title: "📖 API Documentation"
+      fields:
+        - path: "content"
+          label: "Documentation"
+          format: "markdown"
+
+  /complex-raw:
+    operationId: get_complex_complex_get
+    description: Show nested JSON data formatted as JSON
+    formatting:
+      title: "📂 Complex Data Structure"
+      fields:
+        - path: ""
+          label: "Full Payload"
+          format: "json"

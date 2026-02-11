@@ -105,5 +105,29 @@ def user_action(user_id: str, action: str = Body(...)):
         "affected_user": user_id
     }
 
+class UserProfile(BaseModel):
+    id: int
+    username: str
+    email: str
+    bio: str
+    is_active: bool
+
+# 9. List for Table Test
+@app.get("/users", response_model=List[UserProfile])
+def list_users():
+    return [
+        {"id": 1, "username": "alice", "email": "alice@example.com", "bio": "Software Engineer from *Berlin*", "is_active": True},
+        {"id": 2, "username": "bob", "email": "bob@example.com", "bio": "Data Scientist into #AI", "is_active": False},
+        {"id": 3, "username": "charlie", "email": "charlie@example.com", "bio": "Product Manager", "is_active": True},
+    ]
+
+# 10. Markdown Test
+@app.get("/docs/{topic}")
+def get_docs(topic: str):
+    return {
+        "topic": topic,
+        "content": f"# Documentation for {topic}\n\nThis is a **markdown** response from the server.\n\n- Feature A\n- Feature B\n\n```python\nprint('hello world')\n```"
+    }
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
