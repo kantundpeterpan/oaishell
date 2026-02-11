@@ -464,7 +464,7 @@ class OAIShellApp(App):
                             # Suggest parameters not yet used
                             param_text = f"--{p['name']}"
                             if param_text not in value:
-                                items.append(DropdownItem(main=value + param_name + " ", left_meta=f"({p['in']})"))
+                                items.append(DropdownItem(main=value + param_name + " "))
         
         # Theme suggestions
         elif value.startswith('/theme ') and len(words) == 2 and not value.endswith(' '):
