@@ -16,6 +16,15 @@ class StateConfig(BaseModel):
 
 class TUIConfig(BaseModel):
     aggregation_depth: int = Field(default=1, ge=0)
+    type_icons: Dict[str, str] = Field(default_factory=lambda: {
+        "object": "📦",
+        "array": "📜",
+        "string": "🔤",
+        "integer": "🔢",
+        "number": "🔢",
+        "boolean": "☯️",
+        "default": "📄"
+    })
 
 class ShellConfig(BaseModel):
     name: str = "OAI-Shell"

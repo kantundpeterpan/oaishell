@@ -14,7 +14,7 @@ commands:
     after_call:
       save_to_state:
         session_id: "json:session_id"
-    default_response_field: "invalid_field"
+    default_response_field: "access_token"
 
   whoami:
     operationId: get_user_users__user_id__get
@@ -27,4 +27,16 @@ commands:
     operationId: create_item_items_post
     description: "Create item and show nested field"
     # default_response_field: "received.details.color" # Testing dot notation
-    default_response_field: "received.invalid"
+    default_response_field: "received.details"
+
+  complex-test:
+    operationId: get_complex_complex_get
+    description: "Test combined dot and bracket notation"
+    default_response_field: "[0].data[0].tags[1]"
+
+  user-action:
+    operationId: user_action_users__user_id__actions_post
+    description: "POST with path param from state"
+    mapping:
+      user_id: "$STATE.session_id"
+    default_response_field: "action_id"

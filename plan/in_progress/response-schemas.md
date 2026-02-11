@@ -4,7 +4,7 @@ Response schemas should also be discovered and shown in the shell / CLI, e.g. in
 The `default_response_field` is to be validated against the Response schema, but an override setting should exist.
 
 ## Clarifications & Constraints
-- **TUI Layout**: The `/operations-tui** Interactive explorer now has a three-panel layout: Tree (left), Request (top-right), and Response (bottom-right).
+- **TUI Layout**: The `/operations-tui` interactive explorer now has a three-panel layout: Tree (left), Request (top-right), and Response (bottom-right).
 - **Visualization**: Both Request (Parameters + Body) and Response now use a hierarchical Tree view with indentation, types, and descriptions.
 - **Validation**: `default_response_field` is validated against the schema. Non-conformity raises an error unless forcefully overridden.
 - **Notation**: Standard dot-notation for nested objects (`obj.prop`) and bracket notation for arrays (`arr[0]`). Combined usage supported: `nested_obj.prop[0]`.
@@ -24,6 +24,11 @@ The `default_response_field` is to be validated against the Response schema, but
 - [x] Improve validation feedback:
     - [x] Warn at startup if `default_response_field` cannot be validated due to missing schema
     - [x] Flag/Warn if `default_response_field` extraction fails during response processing
+- [x] Final Enhancements:
+    - [x] Update `tests/dummy_server.py` with explicit response schemas and new test cases (nested arrays, POST with path params)
+    - [x] Add coloring to TUI schema tree nodes
+    - [x] Update `examples/test_features.yaml` to showcase new cases
+    - [x] Add configurable icons for schema data types in TUI
 
 # Technical Plan
 
@@ -44,6 +49,7 @@ The `default_response_field` is to be validated against the Response schema, but
     - Top Right: Request Schema (parameters + body).
     - Bottom Right: Response Schema (200 OK schema).
     - Use `rich.tree.Tree` for hierarchical visualization of both request and response.
+    - Added color coding for different data types.
 
 5. **Execution Updates**:
     - Update `_execute_call` to check for `--debug`.

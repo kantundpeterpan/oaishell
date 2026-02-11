@@ -180,7 +180,18 @@ class ShellRunner:
         s_type = schema.get("type", "object")
         description = schema.get("description", "")
         
-        label = f"[bold cyan]{name}[/bold cyan] [dim]({s_type})[/dim]"
+        # Color mapping for types
+        type_col = {
+            "object": "blue",
+            "array": "yellow",
+            "string": "green",
+            "integer": "cyan",
+            "number": "cyan",
+            "boolean": "magenta"
+        }.get(s_type, "white")
+        
+        icon = self.config.tui.type_icons.get(s_type, self.config.tui.type_icons.get("default", ""))
+        label = f"{icon} [bold cyan]{name}[/bold cyan] [dim][{type_col}]({s_type})[/{type_col}][/dim]"
         if description:
             label += f" - [italic]{description}[/italic]"
             
@@ -195,7 +206,7 @@ class ShellRunner:
             for p_name, p_schema in props.items():
                 p_label = p_name
                 if p_name in required:
-                    p_label = f"[bold]{p_name}*[/bold]"
+                    p_label = f"[bold white]{p_name}*[/bold white]"
                 self._build_schema_tree(p_schema, res_tree, p_label)
         elif s_type == "array":
             items = schema.get("items", {})
