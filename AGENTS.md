@@ -6,8 +6,9 @@
 - **Goals**: Zero-boilerplate API interaction, state persistence (tokens, IDs), and dynamic endpoint discovery.
 - **Key Technologies**: 
     - **Python 3.10+**
+    - **Textual**: Modern TUI framework for the primary interactive interface.
+    - **prompt_toolkit**: Powers the legacy shell mode.
     - **httpx**: For async-capable HTTP requests and SSE streaming.
-    - **prompt_toolkit**: For the interactive REPL and advanced tab-completion.
     - **rich**: For beautiful TUI rendering, tables, and hierarchical trees.
     - **Pydantic**: For configuration validation and state management.
     - **PyYAML**: For loading custom command mappings.
@@ -18,7 +19,7 @@ The system follows a modular pipeline:
 2.  **Engine**: Parses the spec, resolves `$ref` recursively, detects common path prefixes (e.g., `/api/v1/`), and manages HTTP calls.
 3.  **Payload Assembler & Schema Resolver**: Maps flat CLI flags (`--param`) to the correct OpenAPI location (Path, Query, Header, or Body) and handles nested dot-notation. Validates and extracts specific response fields using the same path notation.
 4.  **Response Renderer**: A block-based rendering engine that transforms JSON responses into structured TUI elements using `rich` (lists, tables, markdown).
-5.  **Shell/REPL**: Handles user input, provides context-aware completions, and renders the TUI (including a hierarchical API explorer).
+5.  **Shell/TUI**: Handles user input, provides context-aware completions, and renders the TUI. Features a split-pane layout with a live-updating state sidebar and scrollable history. Provides a legacy REPL mode for basic terminal environments.
 
 ## Directory Structure
 - `oai_shell/`: Root package.
@@ -30,7 +31,8 @@ The system follows a modular pipeline:
         - `manager.py`: Config loading logic.
         - `models.py`: Pydantic schemas for `oai-shell.yaml`.
     - `shell/`:
-        - `runner.py`: `ShellRunner` (REPL loop, TUI navigation, `/operations-tui`).
+        - `textual_app.py`: Primary Textual-based TUI implementation (`OAIShellApp`).
+        - `runner.py`: `ShellRunner` (Legacy REPL loop, TUI navigation, `/operations-tui`).
 - `examples/`: Sample configuration files (e.g., `stopchat.yaml`).
 - `tests/`: Unit tests and a `dummy_server.py` (FastAPI) for integration testing.
 - `plan/`: Development roadmap and feature tracking.
@@ -42,7 +44,8 @@ The system follows a modular pipeline:
     - `rules/`: Coding standards and review guidelines.
 
 ## Development Workflow
-- **Run**: `python3 oai_shell/main.py --base-url <url>`
+- **Run**: `python3 oai_shell/main.py --base-url <url>` (Runs Textual TUI by default)
+- **Legacy Mode**: `python3 oai_shell/main.py --legacy --base-url <url>`
 - **Test Server**: `python3 tests/dummy_server.py` (FastAPI server for testing all features).
 - **Testing**: `pytest tests/`
 - **Dependencies**: `httpx`, `prompt_toolkit`, `rich`, `pydantic`, `pyyaml`.
