@@ -378,6 +378,12 @@ class OAIShellApp(App):
     Input:focus {
         border: tall $accent;
     }
+
+    AutoComplete > AutoCompleteList {
+        width: auto;
+        min-width: 30;
+        max-width: 80;
+    }
     """
     
     BINDINGS = [
@@ -420,14 +426,34 @@ class OAIShellApp(App):
     def _get_autocomplete_items(self, input_state) -> List[DropdownItem]:
         """Generate autocomplete items based on current input."""
         value = input_state.text
+        cursor_pos = input_state.cursor_position
+        
         if not value:
             return []
         
-        items = []
-        words = value.split()
+        # We want to maintain context before and after the cursor
+        before_cursor = value[:cursor_pos]
+        after_cursor = value[cursor_pos:]
+        words_before = before_cursor.split()
         
-        # Command suggestions
-        if value.startswith('/') and (len(words) <= 1 or ' ' not in value):
+        # Determine the base text (everything before the current word being typed)
+        # and the last word (the word currently being typed)
+        if before_cursor.endswith(' '):
+            base_text = before_cursor
+            last_word = ""
+        else:
+            last_space_idx = before_cursor.rfind(' ')
+            if last_space_idx == -1:
+                base_text = ""
+                last_word = before_cursor
+            else:
+                base_text = before_cursor[:last_space_idx + 1]
+                last_word = before_cursor[last_space_idx + 1:]
+        
+        items = []
+        
+        # 1. Command suggestions (at the very beginning)
+        if len(words_before) <= 1 and not (len(words_before) == 1 and before_cursor.endswith(' ')):
             internals = [
                 '/help', '/exit', '/state', '/operations', '/call', '/theme'
             ]
@@ -435,25 +461,31 @@ class OAIShellApp(App):
             all_cmds = internals + custom
             
             for cmd in all_cmds:
-                if cmd.startswith(value):
-                    items.append(DropdownItem(cmd))
+                if cmd.startswith(last_word):
+                    items.append(DropdownItem(main=cmd + after_cursor))
         
-        # Operation IDs after /call
-        elif value.startswith('/call ') and len(words) >= 2:
-            if not value.endswith(' '):
-                # Still typing operation ID
-                prefix = words[1] if len(words) == 2 else ""
-                for op_id in self.engine.operations.keys():
-                    if op_id.lower().startswith(prefix.lower()):
-                        items.append(DropdownItem(main=f'/call {op_id}'))
-            else:
-                # Operation ID complete, suggest parameters
-                op_id = words[1]
+        # 2. Operation IDs after /call
+        elif words_before and words_before[0] == '/call':
+            if (len(words_before) == 1 and before_cursor.endswith(' ')) or \
+               (len(words_before) == 2 and not before_cursor.endswith(' ')):
+                # Typing the operation ID
+                for op_id in sorted(self.engine.operations.keys()):
+                    if op_id.lower().startswith(last_word.lower()):
+                        items.append(DropdownItem(main=base_text + op_id + after_cursor))
+            
+            # 3. Parameter suggestions after /call <op_id>
+            elif len(words_before) >= 2:
+                op_id = words_before[1]
                 if op_id in self.engine.operations:
                     all_params = self.engine.get_params_for_operation(op_id)
-                    current_word = words[-1] if len(words) > 2 and not value.endswith(' ') else ""
                     
-                    # Add parameter suggestions
+                    # Filter out parameters already present in the full command
+                    all_words = value.split()
+                    used_params = {w.split('=')[0].lstrip('-') for w in all_words if w.startswith('--')}
+                    
+                    # If typing a parameter, don't filter it out
+                    current_param_typing = last_word.split('=')[0].lstrip('-') if last_word.startswith('--') else None
+                    
                     for p in all_params:
                         param_name = f"--{p['name']}"
                         if current_word.startswith('--'):
@@ -469,12 +501,13 @@ class OAIShellApp(App):
         # Theme suggestions
         elif value.startswith('/theme ') and len(words) == 2 and not value.endswith(' '):
             themes = ['dark', 'light', 'dark-high-contrast']
-            prefix = words[1]
-            for theme in themes:
-                if theme.startswith(prefix.lower()):
-                    items.append(DropdownItem(main=f'/theme {theme}'))
+            if (len(words_before) == 1 and before_cursor.endswith(' ')) or \
+               (len(words_before) == 2 and not before_cursor.endswith(' ')):
+                for theme in themes:
+                    if theme.startswith(last_word.lower()):
+                        items.append(DropdownItem(main=base_text + theme + after_cursor))
         
-        return items[:10]  # Limit to 10 items
+        return items[:15]
     
     def on_mount(self) -> None:
         """Initialize the app when mounted."""
