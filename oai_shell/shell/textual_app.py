@@ -546,62 +546,42 @@ class StateManagementScreen(ModalScreen):
         self.editing = True
         is_edit = bool(key)
 
-        # Create the dialog with all nested widgets
-        dialog = self._create_edit_dialog(is_edit, key, value)
+        # Create the dialog container with all children mounted directly
+        dialog = Container(
+            Label(
+                "Edit State Variable" if is_edit else "Add State Variable",
+                id="edit_title",
+            ),
+            Label("Key:"),
+            Input(
+                value=key,
+                placeholder="Enter key name",
+                id="edit_key_input",
+                disabled=is_edit,
+            ),
+            Label("Value:"),
+            Input(
+                value=value,
+                placeholder="Enter value (string, number, json)",
+                id="edit_value_input",
+            ),
+            Horizontal(
+                Button("Save", variant="primary", id="save_btn"),
+                Button("Cancel", variant="default", id="cancel_btn"),
+                id="edit_buttons",
+            ),
+            id="edit_container",
+        )
 
-        # Mount the dialog as an overlay
+        # Mount the dialog as an overlay to self (the screen)
         self.mount(dialog)
 
         # Focus the value input after mounting
         try:
             value_input = self.query_one("#edit_value_input", Input)
             value_input.focus()
-        except:
+        except Exception:
             pass
-
-    def _create_edit_dialog(self, is_edit: bool, key: str, value: str) -> Container:
-        """Create the edit dialog container with all widgets."""
-        from textual.widget import Widget
-
-        dialog = Container(id="edit_container")
-
-        # Create all widgets
-        widgets: List[Widget] = [
-            Label(
-                "Edit State Variable" if is_edit else "Add State Variable",
-                id="edit_title",
-            ),
-            Label("Key:"),
-        ]
-
-        # Key input (disabled when editing)
-        key_input = Input(value=key, placeholder="Enter key name", id="edit_key_input")
-        if is_edit:
-            key_input.disabled = True
-        widgets.append(key_input)
-
-        # Value input
-        widgets.append(Label("Value:"))
-        widgets.append(
-            Input(
-                value=value,
-                placeholder="Enter value (string, number, json)",
-                id="edit_value_input",
-            )
-        )
-
-        # Buttons
-        buttons = Horizontal(
-            Button("Save", variant="primary", id="save_btn"),
-            Button("Cancel", variant="default", id="cancel_btn"),
-            id="edit_buttons",
-        )
-        widgets.append(buttons)
-
-        # Mount all content to dialog
-        dialog.mount(*widgets)
-
-        return dialog
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses in the edit dialog."""
