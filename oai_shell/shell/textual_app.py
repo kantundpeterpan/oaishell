@@ -477,13 +477,16 @@ class StateManagementScreen(ModalScreen):
         background: $surface;
         border: tall $accent;
         padding: 0;
+        layer: overlay;
+        box-sizing: border-box;
     }
     
     #inline_edit_input {
         width: 100%;
-        height: auto;
+        height: 100%;
         border: none;
         padding: 0 1;
+        content-align: center middle;
     }
     """
 
@@ -740,32 +743,55 @@ class StateManagementScreen(ModalScreen):
             id="inline_edit_container",
         )
 
-        # Mount inline editor
-        table.mount(inline_container)
+        # Mount inline editor to the StateManagementScreen (not the table)
+        # so we can position it absolutely over the table
+        self.mount(inline_container)
 
-        # Position the container over the selected cell using offset
+        # Position the container over the selected cell
         try:
-            # Get approximate position based on cell coordinate
             row, col = coordinate
-            # Position roughly based on row/col (this is approximate)
-            # A cell is roughly 3 chars high and variable width
-            offset_y = (row + 1) * 3  # +1 for header
-            # Column widths vary, but we can estimate
-            if col == 0:
-                offset_x = 0
-            elif col == 1:
-                offset_x = 20  # Approximate Key column width
-            else:
-                offset_x = 45
 
-            inline_container.styles.offset = (offset_x, offset_y)
-            inline_container.styles.width = 30  # Fixed width for input
-            inline_container.styles.height = 3
-        except Exception:
-            # Fallback: position at default location
+            # Calculate position based on table layout
+            # Header takes row 0, data starts at row 1
+            # Each row is 1 cell high in the terminal
+            header_height = 1  # Header row
+            cell_height = 1  # Each data row is 1 line
+
+            # Calculate Y offset from top of table
+            # Need to account for table's position and scroll
+            offset_y = header_height + (row * cell_height)
+
+            # Calculate X offset based on column widths (approximate)
+            # Key column is typically ~20 chars, Value ~30, Type ~10
+            col_widths = [20, 35, 12]
+            offset_x = sum(col_widths[:col]) + col  # +col for borders
+
+            # Get table's offset in the container
+            table_offset_y = 4  # Title + padding + header
+            table_offset_x = 2  # Left padding
+
+            # Set final position
+            final_x = table_offset_x + offset_x
+            final_y = table_offset_y + offset_y
+
+            # Adjust for current scroll position of the table
+            scroll_y = table.scroll_offset.y if hasattr(table, "scroll_offset") else 0
+            final_y -= scroll_y
+
+            inline_container.styles.offset = (final_x, final_y)
+
+            # Set size to match cell approximately
+            if col < len(col_widths):
+                inline_container.styles.width = col_widths[col]
+            else:
+                inline_container.styles.width = 25
+            inline_container.styles.height = 1  # Single line
+
+        except Exception as e:
+            # Fallback: center on screen
             inline_container.styles.offset = (0, 0)
             inline_container.styles.width = 30
-            inline_container.styles.height = 3
+            inline_container.styles.height = 1
 
         # Focus the input
         edit_input.focus()
