@@ -1391,10 +1391,6 @@ class OAIShellApp(App):
         # Update state
         self.state.update(**{key: value})
 
-        # Update the state panel
-        state_panel = self.query_one("#state_panel", StatePanel)
-        state_panel.update_display()
-
         # Display confirmation
         value_display = (
             json.dumps(value) if isinstance(value, (dict, list)) else str(value)
@@ -1450,10 +1446,6 @@ class OAIShellApp(App):
         del self.state.data[key]
         self.state.save()
 
-        # Update the state panel
-        state_panel = self.query_one("#state_panel", StatePanel)
-        state_panel.update_display()
-
         output_log.write(f"[green]Deleted:[/green] {key}")
 
     async def _handle_state_clear(self):
@@ -1464,27 +1456,14 @@ class OAIShellApp(App):
         self.state.data.clear()
         self.state.save()
 
-        # Update the state panel
-        state_panel = self.query_one("#state_panel", StatePanel)
-        state_panel.update_display()
-
         output_log.write("[green]All state cleared[/green]")
 
     async def _show_state_ui(self):
         """Show the state management UI modal."""
-
-        def handle_result(result):
-            # When the modal closes, refresh the state panel
-            state_panel = self.query_one("#state_panel", StatePanel)
-            state_panel.update_display()
-
-        await self.push_screen(StateManagementScreen(self.state), handle_result)
+        await self.push_screen(StateManagementScreen(self.state))
 
     def show_state(self):
         """Display current state."""
-        state_panel = self.query_one("#state_panel", StatePanel)
-        state_panel.update_display()
-
         output_log = self.query_one("#output_log", RichLog)
 
         # Display state in output log as well
@@ -1680,9 +1659,6 @@ class OAIShellApp(App):
                                 output_log.write(
                                     f"[dim]State updated: {state_key}[/dim]"
                                 )
-                                # Update state panel
-                                state_panel = self.query_one("#state_panel", StatePanel)
-                                state_panel.update_display()
 
         except EngineError as e:
             output_log.write(f"[red]API Error:[/red] {e}")
