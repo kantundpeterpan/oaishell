@@ -434,6 +434,15 @@ class StateManagementScreen(ModalScreen):
         text-style: dim;
     }
     
+    #edit_overlay {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: $surface 50%;
+        align: center middle;
+        layer: overlay;
+    }
+    
     #edit_container {
         width: 60%;
         height: auto;
@@ -546,8 +555,8 @@ class StateManagementScreen(ModalScreen):
         self.editing = True
         is_edit = bool(key)
 
-        # Create the dialog container with all children mounted directly
-        dialog = Container(
+        # Create the edit form container
+        edit_form = Container(
             Label(
                 "Edit State Variable" if is_edit else "Add State Variable",
                 id="edit_title",
@@ -573,8 +582,14 @@ class StateManagementScreen(ModalScreen):
             id="edit_container",
         )
 
-        # Mount the dialog as an overlay to self (the screen)
-        self.mount(dialog)
+        # Create overlay that fills screen and centers the dialog
+        overlay = Container(
+            edit_form,
+            id="edit_overlay",
+        )
+
+        # Mount the overlay as an overlay to self (the screen)
+        self.mount(overlay)
 
         # Focus the value input after mounting
         try:
@@ -617,8 +632,9 @@ class StateManagementScreen(ModalScreen):
 
     def _close_edit_dialog(self) -> None:
         """Close the edit dialog."""
-        dialog = self.query_one("#edit_container")
-        dialog.remove()
+        # Remove the overlay (which contains the edit_container)
+        overlay = self.query_one("#edit_overlay")
+        overlay.remove()
         self.editing = False
         # Return focus to the table
         self.query_one("#state_table", DataTable).focus()
