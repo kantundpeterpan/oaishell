@@ -15,6 +15,8 @@ from textual.widgets import (
     Label,
     Button,
 )
+from textual.coordinate import Coordinate
+from textual.widget import Widget
 from textual.widgets.tree import TreeNode
 from textual.containers import (
     Container,
@@ -437,6 +439,543 @@ class OperationsScreen(ModalScreen):
             self.dismiss(None)
 
 
+class StateManagementScreen(ModalScreen):
+    """Modal screen for interactive state management."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close"),
+        Binding("a", "add", "Add"),
+        Binding("d", "delete", "Delete"),
+        Binding("e", "edit", "Edit"),
+    ]
+
+    CSS = """
+    StateManagementScreen {
+        align: center middle;
+    }
+    
+    #state_container {
+        width: auto;
+        height: auto;
+        min-width: 60;
+        max-width: 95%;
+        max-height: 90%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+        align: center middle;
+    }
+    
+    #state_title {
+        height: auto;
+        content-align: center middle;
+        text-style: bold;
+        color: $primary;
+    }
+    
+    #state_table {
+        width: 100%;
+        height: 1fr;
+        border: round $primary;
+    }
+    
+    #state_footer {
+        height: auto;
+        padding: 1 0;
+    }
+    
+    #state_help {
+        height: auto;
+        text-style: dim;
+    }
+    
+    #edit_overlay {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: $surface 50%;
+        align: center middle;
+        layer: overlay;
+    }
+    
+    #edit_container {
+        width: 60%;
+        height: auto;
+        background: $surface;
+        border: thick $accent;
+        padding: 2;
+    }
+    
+    #edit_title {
+        text-align: center;
+        text-style: bold;
+        height: auto;
+        margin-bottom: 1;
+    }
+    
+    #edit_inputs {
+        height: auto;
+        margin: 1 0;
+    }
+    
+    #edit_buttons {
+        height: auto;
+        align: center middle;
+    }
+    
+    #inline_edit_container {
+        position: absolute;
+        background: $surface;
+        border: none;
+        padding: 0;
+        layer: overlay;
+    }
+
+    #inline_edit_input {
+        width: 100%;
+        height: auto;
+        border: solid $accent;
+        padding: 0 1;
+        color: $text;
+        background: $surface;
+    }
+    """
+
+    def __init__(self, state: ClientState):
+        super().__init__()
+        self.state = state
+        self.selected_key: Optional[str] = None
+        self.editing = False
+        self.editing_column: Optional[int] = None  # 0=Key, 1=Value
+        self.editing_coordinate: Optional[tuple] = None  # (row, col) to restore
+
+    def compose(self) -> ComposeResult:
+        """Compose the state management UI."""
+        with Container(id="state_container"):
+            yield Label("State Management", id="state_title")
+            yield DataTable(id="state_table")
+            yield Label("[a]dd | [e]dit | [d]elete | [q]uit", id="state_footer")
+            yield Label(
+                "Navigate with arrows, Enter=edit cell, 'e'=edit selected",
+                id="state_help",
+            )
+
+    def on_mount(self) -> None:
+        """Build the state table when mounted."""
+        table = self.query_one("#state_table", DataTable)
+        table.add_columns("Key", "Value", "Type")
+        table.cursor_type = "cell"
+        table.zebra_stripes = True
+        self._refresh_table()
+
+    def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
+        """Handle cell selection for inline editing."""
+        table = self.query_one("#state_table", DataTable)
+        row_key = event.cell_key.row_key
+        column_key = event.cell_key.column_key
+
+        # Get the row data
+        row_data = table.get_row(row_key)
+        if not row_data or row_data[0] == "[dim]No state variables":
+            return
+
+        # Store selected key
+        self.selected_key = row_data[0]
+
+        # Get column index
+        column_index = table.get_column_index(column_key)
+
+        # Don't allow editing Type column (index 2)
+        if column_index == 2:
+            return
+
+        # Edit based on column
+        if column_index == 0:
+            # Key column - inline edit the key name
+            self._show_inline_editor_at_cell(event.coordinate, column_index=0)
+        elif column_index == 1:
+            # Value column - use inline editing for simple values, dialog for complex
+            value = self.state.get(self.selected_key)
+            if isinstance(value, (dict, list)):
+                value_str = json.dumps(value)
+                self._show_edit_dialog(self.selected_key, value_str)
+            else:
+                # Show inline editor at the selected cell
+                self._show_inline_editor_at_cell(event.coordinate, column_index=1)
+
+    def action_add(self) -> None:
+        """Add a new state variable."""
+        self._show_edit_dialog()
+
+    def action_edit(self) -> None:
+        """Edit the currently selected cell."""
+        if not self.selected_key:
+            self.notify("No state variable selected", severity="warning")
+            return
+
+        table = self.query_one("#state_table", DataTable)
+        cursor_coordinate = table.cursor_coordinate
+
+        # Get the row data from the cursor position
+        try:
+            row_key, _ = table.coordinate_to_cell_key(cursor_coordinate)
+            row_data = table.get_row(row_key)
+            if row_data and row_data[0] != "[dim]No state variables":
+                self.selected_key = row_data[0]
+        except Exception:
+            pass
+
+        if not self.selected_key:
+            return
+
+        # Edit based on current cursor column
+        column = cursor_coordinate[1] if cursor_coordinate else 1
+
+        if column == 2:  # Type column - not editable
+            return
+        elif column == 0:  # Key column - inline edit
+            self._show_inline_editor_at_cell(cursor_coordinate, column_index=0)
+        else:  # Value column
+            value = self.state.get(self.selected_key)
+            if isinstance(value, (dict, list)):
+                value_str = json.dumps(value)
+                self._show_edit_dialog(self.selected_key, value_str)
+            else:
+                self._show_inline_editor_at_cell(cursor_coordinate, column_index=1)
+
+    def _refresh_table(self) -> None:
+        """Refresh the state table with current data."""
+        table = self.query_one("#state_table", DataTable)
+        table.clear()
+
+        state_dict = self.state.to_dict()
+        if not state_dict:
+            table.add_row("[dim]No state variables", "", "")
+        else:
+            for key, value in sorted(state_dict.items()):
+                value_str = (
+                    json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                )
+                # Truncate long values
+                if len(value_str) > 50:
+                    value_str = value_str[:47] + "..."
+                value_type = type(value).__name__
+                table.add_row(key, value_str, value_type)
+
+    def action_delete(self) -> None:
+        """Delete the selected state variable."""
+        if not self.selected_key:
+            self.notify("No state variable selected", severity="warning")
+            return
+
+        if self.selected_key in self.state.data:
+            deleted_key = self.selected_key
+            del self.state.data[self.selected_key]
+            self.state.save()
+            self.selected_key = None
+            self._refresh_table()
+            self.notify(f"Deleted: {deleted_key}", severity="information")
+
+    def _show_edit_dialog(self, key: str = "", value: str = "") -> None:
+        """Show the edit/add dialog."""
+        self.editing = True
+        is_edit = bool(key)
+
+        # Create the edit form container
+        edit_form = Container(
+            Label(
+                "Edit State Variable" if is_edit else "Add State Variable",
+                id="edit_title",
+            ),
+            Label("Key:"),
+            Input(
+                value=key,
+                placeholder="Enter key name",
+                id="edit_key_input",
+                disabled=is_edit,
+            ),
+            Label("Value:"),
+            Input(
+                value=value,
+                placeholder="Enter value (string, number, json)",
+                id="edit_value_input",
+            ),
+            Horizontal(
+                Button("Save", variant="primary", id="save_btn"),
+                Button("Cancel", variant="default", id="cancel_btn"),
+                id="edit_buttons",
+            ),
+            id="edit_container",
+        )
+
+        # Create overlay that fills screen and centers the dialog
+        overlay = Container(
+            edit_form,
+            id="edit_overlay",
+        )
+
+        # Mount the overlay as an overlay to self (the screen)
+        self.mount(overlay)
+
+        # Focus the value input after mounting
+        try:
+            value_input = self.query_one("#edit_value_input", Input)
+            value_input.focus()
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses in the edit dialog."""
+        button_id = event.button.id
+
+        if button_id == "cancel_btn":
+            self._close_edit_dialog()
+        elif button_id == "save_btn":
+            self._save_state_value()
+
+    def _save_state_value(self) -> None:
+        """Save the state value from the edit dialog."""
+        key_input = self.query_one("#edit_key_input", Input)
+        value_input = self.query_one("#edit_value_input", Input)
+
+        key = key_input.value.strip()
+        value_str = value_input.value.strip()
+
+        if not key:
+            self.notify("Key cannot be empty", severity="error")
+            return
+
+        # Parse the value using the same logic as the command handler
+        value = self._parse_value(value_str)
+
+        # Update state
+        self.state.update(**{key: value})
+
+        # Refresh and close
+        self._refresh_table()
+        self._close_edit_dialog()
+        self.notify(f"Saved: {key}", severity="information")
+
+    def _close_edit_dialog(self) -> None:
+        """Close the edit dialog."""
+        # Remove the overlay (which contains the edit_container)
+        overlay = self.query_one("#edit_overlay")
+        overlay.remove()
+        self.editing = False
+        # Return focus to the table
+        self.query_one("#state_table", DataTable).focus()
+
+    def _show_inline_editor_at_cell(self, coordinate, column_index: int = 1) -> None:
+        """Show inline editor at the specified cell coordinate.
+
+        Args:
+            coordinate: The (row, col) coordinate in the table
+            column_index: 0 for Key column, 1 for Value column
+        """
+        if not self.selected_key:
+            return
+
+        self.editing = True
+        self.editing_column = column_index
+        self.editing_coordinate = coordinate
+        table = self.query_one("#state_table", DataTable)
+
+        # Get current value based on column
+        if column_index == 0:
+            # Editing the key name
+            value_str = self.selected_key
+            placeholder = "Enter key name..."
+        else:
+            # Editing the value
+            value = self.state.get(self.selected_key)
+            value_str = str(value) if value is not None else ""
+            placeholder = "Enter value..."
+
+        # Create inline edit container with input
+        edit_input = Input(
+            value=value_str,
+            placeholder=placeholder,
+            id="inline_edit_input",
+        )
+
+        inline_container = Container(
+            edit_input,
+            id="inline_edit_container",
+        )
+
+        # Mount inline editor to the StateManagementScreen (not the table)
+        # so we can position it absolutely over the table
+        self.mount(inline_container)
+
+        # Position the container over the selected cell
+        try:
+            row, col = coordinate
+
+            # Calculate position based on table layout
+            # Header takes row 0, data starts at row 1
+            # Each row is 1 cell high in the terminal
+            header_height = 1  # Header row
+            cell_height = 1  # Each data row is 1 line
+
+            # Calculate Y offset from top of table
+            # Need to account for table's position and scroll
+            offset_y = header_height + (row * cell_height)
+
+            # Calculate X offset based on column widths (approximate)
+            # Key column is typically ~20 chars, Value ~30, Type ~10
+            col_widths = [20, 35, 12]
+            offset_x = sum(col_widths[:col]) + col  # +col for borders
+
+            # Get table's offset in the container
+            table_offset_y = 4  # Title + padding + header
+            table_offset_x = 2  # Left padding
+
+            # Set final position
+            final_x = table_offset_x + offset_x
+            final_y = table_offset_y + offset_y
+
+            # Adjust for current scroll position of the table
+            scroll_y = table.scroll_offset.y if hasattr(table, "scroll_offset") else 0
+            final_y -= scroll_y
+
+            inline_container.styles.offset = (final_x, final_y)
+
+            # Set size - Input widget naturally takes 3 lines (border + content + border)
+            if col < len(col_widths):
+                inline_container.styles.width = col_widths[col]
+            else:
+                inline_container.styles.width = 25
+            inline_container.styles.height = "auto"
+
+        except Exception as e:
+            # Fallback: center on screen
+            inline_container.styles.offset = (0, 0)
+            inline_container.styles.width = 30
+            inline_container.styles.height = "auto"
+
+        # Focus the input after a brief delay to ensure it's mounted
+        def focus_input():
+            try:
+                self.query_one("#inline_edit_input", Input).focus()
+            except Exception:
+                pass
+
+        self.set_timer(0.05, focus_input)
+
+    def _save_inline_edit(self) -> None:
+        """Save the inline edit value."""
+        if not self.selected_key:
+            return
+
+        try:
+            input_widget = self.query_one("#inline_edit_input", Input)
+            value_str = input_widget.value.strip()
+
+            if self.editing_column == 0:
+                # Editing the key name - rename the key
+                new_key = value_str
+                if not new_key:
+                    self.notify("Key cannot be empty", severity="error")
+                    return
+                if new_key != self.selected_key:
+                    if new_key in self.state.data:
+                        self.notify(f"Key '{new_key}' already exists", severity="error")
+                        return
+                    # Get the value and delete old key
+                    value = self.state.get(self.selected_key)
+                    del self.state.data[self.selected_key]
+                    # Create new key with same value
+                    self.state.data[new_key] = value
+                    self.state.save()
+                    self.selected_key = new_key
+                    self.notify(f"Renamed to: {new_key}", severity="information")
+            else:
+                # Editing the value
+                value = self._parse_value(value_str)
+                self.state.update(**{self.selected_key: value})
+                self.notify(f"Updated: {self.selected_key}", severity="information")
+
+            # Refresh table
+            self._refresh_table()
+        except Exception as e:
+            self.notify(f"Error saving: {e}", severity="error")
+        finally:
+            self._close_inline_editor()
+
+    def _close_inline_editor(self) -> None:
+        """Close the inline editor without saving."""
+        try:
+            inline_container = self.query_one("#inline_edit_container")
+            inline_container.remove()
+        except Exception:
+            pass
+        finally:
+            self.editing = False
+            self.editing_column = None
+            # Return focus to table and restore cursor position
+            table = self.query_one("#state_table", DataTable)
+            if self.editing_coordinate:
+                row, col = self.editing_coordinate
+                table.cursor_coordinate = Coordinate(row, col)
+                self.editing_coordinate = None
+            table.focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in inline editor."""
+        if event.input.id == "inline_edit_input":
+            self._save_inline_edit()
+
+    def on_key(self, event) -> None:
+        """Handle key events - Escape to cancel inline editing."""
+        if event.key == "escape" and self.editing:
+            # Check if inline editor is active
+            try:
+                self.query_one("#inline_edit_container")
+                self._close_inline_editor()
+                event.stop()
+            except Exception:
+                pass
+
+    def _parse_value(self, value_str: str) -> Any:
+        """Parse a string value into appropriate type."""
+        value_str = value_str.strip()
+
+        # Try to parse as JSON first (for objects, arrays, null)
+        if (
+            (value_str.startswith("{") and value_str.endswith("}"))
+            or (value_str.startswith("[") and value_str.endswith("]"))
+            or value_str in ["null", "true", "false"]
+        ):
+            try:
+                return json.loads(value_str)
+            except json.JSONDecodeError:
+                pass
+
+        # Try boolean
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+        if value_str.lower() in ["null", "none"]:
+            return None
+
+        # Try integer
+        try:
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Try float
+        try:
+            return float(value_str)
+        except ValueError:
+            pass
+
+        # Fall back to string
+        return value_str
+
+
 class OAIShellAutoComplete(AutoComplete):
     """Custom AutoComplete that only completes the word under the cursor."""
 
@@ -480,43 +1019,36 @@ class OAIShellApp(App):
         grid-size: 12 12;
         grid-rows: auto 1fr auto;
     }
-    
+
     Header {
         column-span: 12;
     }
-    
-    #state_panel {
-        column-span: 3;
-        row-span: 10;
-        height: 100%;
-        border:  $primary;
-        padding: 1;
-        background: $surface;
-    }
-    
+
     #output_log {
-        column-span: 9;
+        column-span: 12;
         row-span: 10;
         height: 100%;
         border: round $primary;
         background: $surface;
         scrollbar-gutter: stable;
     }
-    
+
     #input_container {
         column-span: 12;
         height: auto;
         padding: 1;
-        border: round $accent;
         background: $panel;
     }
-    
-    Input {
+
+    #command_input {
         width: 100%;
+        border: solid $accent;
+        background: $surface;
+        color: $text;
     }
-    
-    Input:focus {
-        border: tall $accent;
+
+    #command_input:focus {
+        border: solid $accent;
     }
 
     AutoComplete > AutoCompleteList {
@@ -546,12 +1078,11 @@ class OAIShellApp(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header(show_clock=True)
-        yield StatePanel(self.state, id="state_panel")
         yield RichLog(id="output_log", highlight=True, markup=True, wrap=True)
 
         # Create input with autocomplete
         input_widget = Input(
-            placeholder="Enter command (e.g., /help, /operations, /call ...)",
+            placeholder="Enter command (e.g., /help, /exit, /state, /operations, /call ...)",
             id="command_input",
         )
 
@@ -730,7 +1261,7 @@ class OAIShellApp(App):
             elif cmd == "/operations":
                 await self.show_operations_interactive()
             elif cmd == "/state":
-                self.show_state()
+                await self.handle_state_command(args)
             elif cmd == "/theme":
                 self.handle_theme(args)
             elif cmd == "/call":
@@ -752,6 +1283,12 @@ class OAIShellApp(App):
         table.add_row("/help", "Show this help")
         table.add_row("/operations", "Interactive API operations explorer")
         table.add_row("/state", "Show current state")
+        table.add_row("/state list", "List all state variables")
+        table.add_row("/state get <key>", "Get a specific state value")
+        table.add_row("/state set <key> <value>", "Set a state value")
+        table.add_row("/state delete <key>", "Delete a state variable")
+        table.add_row("/state clear", "Clear all state variables")
+        table.add_row("/state ui", "Open interactive state management UI")
         table.add_row(
             "/theme <name>", "Change color theme (dark, light, dark-high-contrast)"
         )
@@ -815,13 +1352,193 @@ class OAIShellApp(App):
         self._current_theme_name = theme_name
         output_log.write(f"[green]Theme changed to:[/green] {theme_name}")
 
+    async def handle_state_command(self, args: List[str]):
+        """Handle /state command with subcommands."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if not args:
+            # No arguments - just refresh the display
+            self.show_state()
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "set":
+            await self._handle_state_set(args[1:])
+        elif subcommand == "get":
+            await self._handle_state_get(args[1:])
+        elif subcommand == "list":
+            self.show_state()
+        elif subcommand == "delete" or subcommand == "rm":
+            await self._handle_state_delete(args[1:])
+        elif subcommand == "clear":
+            await self._handle_state_clear()
+        elif subcommand == "ui":
+            await self._show_state_ui()
+        else:
+            output_log.write(
+                f"[yellow]Unknown state subcommand: {subcommand}[/yellow]\n"
+                "[dim]Available: set, get, list, delete/rm, clear, ui[/dim]"
+            )
+
+    def _parse_value(self, value_str: str) -> Any:
+        """Parse a string value into appropriate type."""
+        value_str = value_str.strip()
+
+        # Try to parse as JSON first (for objects, arrays, null)
+        if (
+            (value_str.startswith("{") and value_str.endswith("}"))
+            or (value_str.startswith("[") and value_str.endswith("]"))
+            or value_str == "null"
+            or value_str == "true"
+            or value_str == "false"
+        ):
+            try:
+                return json.loads(value_str)
+            except json.JSONDecodeError:
+                pass
+
+        # Try boolean
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+        if value_str.lower() == "null" or value_str.lower() == "none":
+            return None
+
+        # Try integer
+        try:
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Try float
+        try:
+            return float(value_str)
+        except ValueError:
+            pass
+
+        # Fall back to string
+        return value_str
+
+    async def _handle_state_set(self, args: List[str]):
+        """Handle 'set' subcommand: /state set <key> <value>."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if len(args) < 2:
+            output_log.write(
+                "[red]Usage:[/red] /state set <key> <value>\n"
+                "[dim]Examples:[/dim]\n"
+                "  /state set session_id abc123\n"
+                "  /state set count 42\n"
+                "  /state set enabled true\n"
+                '  /state set data \'{"key": "value"}\''
+            )
+            return
+
+        key = args[0]
+        # Join remaining args in case value has spaces
+        value_str = " ".join(args[1:])
+        value = self._parse_value(value_str)
+
+        # Update state
+        self.state.update(**{key: value})
+
+        # Display confirmation
+        value_display = (
+            json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+        )
+        output_log.write(
+            f"[green]State set:[/green] {key} = {value_display} ({type(value).__name__})"
+        )
+
+    async def _handle_state_get(self, args: List[str]):
+        """Handle 'get' subcommand: /state get <key>."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if len(args) < 1:
+            output_log.write("[red]Usage:[/red] /state get <key>")
+            return
+
+        key = args[0]
+        value = self.state.get(key)
+
+        if value is None and key not in self.state.to_dict():
+            output_log.write(f"[yellow]Key not found:[/yellow] {key}")
+            return
+
+        # Format the output based on type
+        value_type = type(value).__name__
+        if isinstance(value, (dict, list)):
+            value_display = json.dumps(value, indent=2)
+            output_log.write(
+                Panel(
+                    Syntax(value_display, "json", background_color="default"),
+                    title=f"[cyan]{key}[/cyan] ([dim]{value_type}[/dim])",
+                    border_style="green",
+                )
+            )
+        else:
+            output_log.write(f"[cyan]{key}[/cyan] ([dim]{value_type}[/dim]): {value}")
+
+    async def _handle_state_delete(self, args: List[str]):
+        """Handle 'delete' subcommand: /state delete <key>."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if len(args) < 1:
+            output_log.write("[red]Usage:[/red] /state delete <key>")
+            return
+
+        key = args[0]
+
+        if key not in self.state.to_dict():
+            output_log.write(f"[yellow]Key not found:[/yellow] {key}")
+            return
+
+        # Remove from state
+        del self.state.data[key]
+        self.state.save()
+
+        output_log.write(f"[green]Deleted:[/green] {key}")
+
+    async def _handle_state_clear(self):
+        """Handle 'clear' subcommand: /state clear."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        # Clear all state
+        self.state.data.clear()
+        self.state.save()
+
+        output_log.write("[green]All state cleared[/green]")
+
+    async def _show_state_ui(self):
+        """Show the state management UI modal."""
+        await self.push_screen(StateManagementScreen(self.state))
+
     def show_state(self):
         """Display current state."""
-        state_panel = self.query_one("#state_panel", StatePanel)
-        state_panel.update_display()
-
         output_log = self.query_one("#output_log", RichLog)
-        output_log.write("[green]State panel updated[/green]")
+
+        # Display state in output log as well
+        state_dict = self.state.to_dict()
+        if not state_dict:
+            output_log.write("[dim]No state variables set[/dim]")
+        else:
+            table = RichTable(
+                title="[bold cyan]State Variables[/bold cyan]", box=None, padding=(0, 1)
+            )
+            table.add_column("Key", style="yellow")
+            table.add_column("Value", style="green")
+            table.add_column("Type", style="dim")
+
+            for k, v in state_dict.items():
+                v_str = json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+                table.add_row(k, v_str[:40], type(v).__name__)
+
+            output_log.write(table)
+            output_log.write(
+                "[dim]Use '/state set <key> <value>' to modify, '/state get <key>' to view[/dim]"
+            )
 
     def _parse_cli_args(
         self, args: List[str]
@@ -995,9 +1712,6 @@ class OAIShellApp(App):
                                 output_log.write(
                                     f"[dim]State updated: {state_key}[/dim]"
                                 )
-                                # Update state panel
-                                state_panel = self.query_one("#state_panel", StatePanel)
-                                state_panel.update_display()
 
         except EngineError as e:
             output_log.write(f"[red]API Error:[/red] {e}")
