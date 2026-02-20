@@ -15,6 +15,7 @@ from textual.widgets import (
     Label,
     Button,
 )
+from textual.widget import Widget
 from textual.widgets.tree import TreeNode
 from textual.containers import (
     Container,
@@ -533,55 +534,74 @@ class StateManagementScreen(ModalScreen):
             return
 
         if self.selected_key in self.state.data:
+            deleted_key = self.selected_key
             del self.state.data[self.selected_key]
             self.state.save()
-            self._refresh_table()
             self.selected_key = None
-            self.notify(f"Deleted: {self.selected_key}", severity="information")
+            self._refresh_table()
+            self.notify(f"Deleted: {deleted_key}", severity="information")
 
     def _show_edit_dialog(self, key: str = "", value: str = "") -> None:
         """Show the edit/add dialog."""
         self.editing = True
         is_edit = bool(key)
 
-        # Create the dialog container
-        from textual.containers import Grid
-
-        dialog = Container(id="edit_container")
-
-        # Title
-        title = Label(
-            "Edit State Variable" if is_edit else "Add State Variable", id="edit_title"
-        )
-
-        # Input containers
-        inputs_container = Container(id="edit_inputs")
-        key_label = Label("Key:")
-        key_input = Input(value=key, placeholder="Enter key name", id="edit_key_input")
-        if is_edit:
-            key_input.disabled = True  # Can't change key when editing
-        value_label = Label("Value:")
-        value_input = Input(
-            value=value,
-            placeholder="Enter value (string, number, json)",
-            id="edit_value_input",
-        )
-
-        # Buttons container
-        buttons_container = Container(id="edit_buttons")
-        buttons_horizontal = Horizontal()
-        save_btn = Button("Save", variant="primary", id="save_btn")
-        cancel_btn = Button("Cancel", variant="default", id="cancel_btn")
-
-        # Assemble the dialog
-        inputs_container.mount(key_label, key_input, value_label, value_input)
-        buttons_horizontal.mount(save_btn, cancel_btn)
-        buttons_container.mount(buttons_horizontal)
-        dialog.mount(title, inputs_container, buttons_container)
+        # Create the dialog with all nested widgets
+        dialog = self._create_edit_dialog(is_edit, key, value)
 
         # Mount the dialog as an overlay
         self.mount(dialog)
-        self.query_one("#edit_value_input", Input).focus()
+
+        # Focus the value input after mounting
+        try:
+            value_input = self.query_one("#edit_value_input", Input)
+            value_input.focus()
+        except:
+            pass
+
+    def _create_edit_dialog(self, is_edit: bool, key: str, value: str) -> Container:
+        """Create the edit dialog container with all widgets."""
+        from textual.widget import Widget
+
+        dialog = Container(id="edit_container")
+
+        # Create all widgets
+        widgets: List[Widget] = [
+            Label(
+                "Edit State Variable" if is_edit else "Add State Variable",
+                id="edit_title",
+            ),
+            Label("Key:"),
+        ]
+
+        # Key input (disabled when editing)
+        key_input = Input(value=key, placeholder="Enter key name", id="edit_key_input")
+        if is_edit:
+            key_input.disabled = True
+        widgets.append(key_input)
+
+        # Value input
+        widgets.append(Label("Value:"))
+        widgets.append(
+            Input(
+                value=value,
+                placeholder="Enter value (string, number, json)",
+                id="edit_value_input",
+            )
+        )
+
+        # Buttons
+        buttons = Horizontal(
+            Button("Save", variant="primary", id="save_btn"),
+            Button("Cancel", variant="default", id="cancel_btn"),
+            id="edit_buttons",
+        )
+        widgets.append(buttons)
+
+        # Mount all content to dialog
+        dialog.mount(*widgets)
+
+        return dialog
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses in the edit dialog."""
