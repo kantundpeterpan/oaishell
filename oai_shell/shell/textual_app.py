@@ -487,22 +487,19 @@ class OAIShellApp(App):
                     current_param_typing = last_word.split('=')[0].lstrip('-') if last_word.startswith('--') else None
                     
                     for p in all_params:
-                        param_name = p['name']
-                        full_param = f"--{param_name}"
-                        
-                        if param_name in used_params and param_name != current_param_typing:
-                            continue
-                        
-                        if full_param.startswith(last_word):
-                            type_hint = p.get('type', 'any')
-                            prefix_text = f"({p['in']}) {type_hint}"
-                            items.append(DropdownItem(
-                                main=base_text + full_param + " " + after_cursor, 
-                                prefix=prefix_text
-                            ))
+                        param_name = f"--{p['name']}"
+                        if current_word.startswith('--'):
+                            if param_name.startswith(current_word):
+                                replacement = value.rsplit(current_word, 1)[0] + param_name + " "
+                                items.append(DropdownItem(main=replacement))
+                        else:
+                            # Suggest parameters not yet used
+                            param_text = f"--{p['name']}"
+                            if param_text not in value:
+                                items.append(DropdownItem(main=value + param_name + " "))
         
-        # 4. Theme suggestions
-        elif words_before and words_before[0] == '/theme':
+        # Theme suggestions
+        elif value.startswith('/theme ') and len(words) == 2 and not value.endswith(' '):
             themes = ['dark', 'light', 'dark-high-contrast']
             if (len(words_before) == 1 and before_cursor.endswith(' ')) or \
                (len(words_before) == 2 and not before_cursor.endswith(' ')):
