@@ -404,11 +404,15 @@ class StateManagementScreen(ModalScreen):
     }
     
     #state_container {
-        width: 85%;
-        height: 80%;
+        width: auto;
+        height: auto;
+        min-width: 60;
+        max-width: 95%;
+        max-height: 90%;
         background: $surface;
         border: thick $primary;
         padding: 1 2;
+        align: center middle;
     }
     
     #state_title {
@@ -503,9 +507,92 @@ class StateManagementScreen(ModalScreen):
         """Build the state table when mounted."""
         table = self.query_one("#state_table", DataTable)
         table.add_columns("Key", "Value", "Type")
-        table.cursor_type = "row"
+        table.cursor_type = "cell"
         table.zebra_stripes = True
         self._refresh_table()
+
+    def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
+        """Handle cell selection for inline editing."""
+        table = self.query_one("#state_table", DataTable)
+        row_key = event.cell_key.row_key
+        column_key = event.cell_key.column_key
+
+        # Get the row data
+        row_data = table.get_row(row_key)
+        if not row_data or row_data[0] == "[dim]No state variables":
+            return
+
+        # Store selected key
+        self.selected_key = row_data[0]
+
+        # Get column index
+        column_index = table.get_column_index(column_key)
+
+        # Don't allow editing Type column (index 2)
+        if column_index == 2:
+            return
+
+        # Edit based on column
+        if column_index == 0:
+            # Key column - use dialog (editing keys is more complex)
+            value = self.state.get(self.selected_key)
+            value_str = (
+                json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+            )
+            self._show_edit_dialog(self.selected_key, value_str)
+        elif column_index == 1:
+            # Value column - use inline editing for simple values, dialog for complex
+            value = self.state.get(self.selected_key)
+            if isinstance(value, (dict, list)):
+                value_str = json.dumps(value)
+                self._show_edit_dialog(self.selected_key, value_str)
+            else:
+                # Show inline editor at the selected cell
+                self._show_inline_editor_at_cell(event.coordinate)
+
+    def action_add(self) -> None:
+        """Add a new state variable."""
+        self._show_edit_dialog()
+
+    def action_edit(self) -> None:
+        """Edit the currently selected cell."""
+        if not self.selected_key:
+            self.notify("No state variable selected", severity="warning")
+            return
+
+        table = self.query_one("#state_table", DataTable)
+        cursor_coordinate = table.cursor_coordinate
+
+        # Get the row data from the cursor position
+        try:
+            row_key, _ = table.coordinate_to_cell_key(cursor_coordinate)
+            row_data = table.get_row(row_key)
+            if row_data and row_data[0] != "[dim]No state variables":
+                self.selected_key = row_data[0]
+        except Exception:
+            pass
+
+        if not self.selected_key:
+            return
+
+        # Edit based on current cursor column
+        column = cursor_coordinate[1] if cursor_coordinate else 1
+
+        if column == 2:  # Type column - not editable
+            return
+        elif column == 0:  # Key column - use dialog
+            value = self.state.get(self.selected_key)
+            value_str = (
+                json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+            )
+            self._show_edit_dialog(self.selected_key, value_str)
+        else:  # Value column
+            value = self.state.get(self.selected_key)
+            if isinstance(value, (dict, list)):
+                value_str = json.dumps(value)
+                self._show_edit_dialog(self.selected_key, value_str)
+            else:
+                self._show_inline_editor_at_cell(cursor_coordinate)
 
     def _refresh_table(self) -> None:
         """Refresh the state table with current data."""
@@ -525,34 +612,6 @@ class StateManagementScreen(ModalScreen):
                     value_str = value_str[:47] + "..."
                 value_type = type(value).__name__
                 table.add_row(key, value_str, value_type)
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection."""
-        table = self.query_one("#state_table", DataTable)
-        row_key = event.row_key
-        row_data = table.get_row(row_key)
-
-        if row_data and row_data[0] != "[dim]No state variables":
-            self.selected_key = row_data[0]
-
-    def action_add(self) -> None:
-        """Add a new state variable."""
-        self._show_edit_dialog()
-
-    def action_edit(self) -> None:
-        """Edit the selected state variable (inline editing)."""
-        if not self.selected_key:
-            self.notify("No state variable selected", severity="warning")
-            return
-
-        # Check if this is a complex type (dict/list) - use dialog for those
-        value = self.state.get(self.selected_key)
-        if isinstance(value, (dict, list)):
-            value_str = json.dumps(value)
-            self._show_edit_dialog(self.selected_key, value_str)
-        else:
-            # Use inline editing for simple values
-            self._show_inline_editor()
 
     def action_delete(self) -> None:
         """Delete the selected state variable."""
@@ -657,8 +716,8 @@ class StateManagementScreen(ModalScreen):
         # Return focus to the table
         self.query_one("#state_table", DataTable).focus()
 
-    def _show_inline_editor(self) -> None:
-        """Show inline editor for the selected row's value cell."""
+    def _show_inline_editor_at_cell(self, coordinate) -> None:
+        """Show inline editor at the specified cell coordinate."""
         if not self.selected_key:
             return
 
@@ -668,19 +727,6 @@ class StateManagementScreen(ModalScreen):
         # Get current value
         value = self.state.get(self.selected_key)
         value_str = str(value) if value is not None else ""
-
-        # Find the row index for the selected key
-        row_index = None
-        state_dict = self.state.to_dict()
-        for idx, key in enumerate(sorted(state_dict.keys())):
-            if key == self.selected_key:
-                row_index = idx
-                break
-
-        if row_index is None:
-            # Fallback to dialog if row not found
-            self._show_edit_dialog(self.selected_key, value_str)
-            return
 
         # Create inline edit container with input
         edit_input = Input(
@@ -697,19 +743,29 @@ class StateManagementScreen(ModalScreen):
         # Mount inline editor
         table.mount(inline_container)
 
-        # Position the container over the value cell (column 1)
-        # Get the cell region for positioning
+        # Position the container over the selected cell using offset
         try:
-            # Try to get the cell region from the table
-            cell_key = table.coordinate_to_cell_key((row_index, 1))  # Column 1 = Value
-            region = table.get_cell_region(cell_key)
-            if region:
-                inline_container.styles.offset = (region.x, region.y)
-                inline_container.styles.width = region.width
-                inline_container.styles.height = region.height
+            # Get approximate position based on cell coordinate
+            row, col = coordinate
+            # Position roughly based on row/col (this is approximate)
+            # A cell is roughly 3 chars high and variable width
+            offset_y = (row + 1) * 3  # +1 for header
+            # Column widths vary, but we can estimate
+            if col == 0:
+                offset_x = 0
+            elif col == 1:
+                offset_x = 20  # Approximate Key column width
+            else:
+                offset_x = 45
+
+            inline_container.styles.offset = (offset_x, offset_y)
+            inline_container.styles.width = 30  # Fixed width for input
+            inline_container.styles.height = 3
         except Exception:
-            # Fallback: position at cursor or default location
-            pass
+            # Fallback: position at default location
+            inline_container.styles.offset = (0, 0)
+            inline_container.styles.width = 30
+            inline_container.styles.height = 3
 
         # Focus the input
         edit_input.focus()
