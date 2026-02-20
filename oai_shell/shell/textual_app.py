@@ -467,6 +467,20 @@ class StateManagementScreen(ModalScreen):
         height: auto;
         align: center middle;
     }
+    
+    #inline_edit_container {
+        position: absolute;
+        background: $surface;
+        border: tall $accent;
+        padding: 0;
+    }
+    
+    #inline_edit_input {
+        width: 100%;
+        height: auto;
+        border: none;
+        padding: 0 1;
+    }
     """
 
     def __init__(self, state: ClientState):
@@ -526,15 +540,19 @@ class StateManagementScreen(ModalScreen):
         self._show_edit_dialog()
 
     def action_edit(self) -> None:
-        """Edit the selected state variable."""
-        if self.selected_key:
-            value = self.state.get(self.selected_key)
-            value_str = (
-                json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-            )
+        """Edit the selected state variable (inline editing)."""
+        if not self.selected_key:
+            self.notify("No state variable selected", severity="warning")
+            return
+
+        # Check if this is a complex type (dict/list) - use dialog for those
+        value = self.state.get(self.selected_key)
+        if isinstance(value, (dict, list)):
+            value_str = json.dumps(value)
             self._show_edit_dialog(self.selected_key, value_str)
         else:
-            self.notify("No state variable selected", severity="warning")
+            # Use inline editing for simple values
+            self._show_inline_editor()
 
     def action_delete(self) -> None:
         """Delete the selected state variable."""
@@ -638,6 +656,112 @@ class StateManagementScreen(ModalScreen):
         self.editing = False
         # Return focus to the table
         self.query_one("#state_table", DataTable).focus()
+
+    def _show_inline_editor(self) -> None:
+        """Show inline editor for the selected row's value cell."""
+        if not self.selected_key:
+            return
+
+        self.editing = True
+        table = self.query_one("#state_table", DataTable)
+
+        # Get current value
+        value = self.state.get(self.selected_key)
+        value_str = str(value) if value is not None else ""
+
+        # Find the row index for the selected key
+        row_index = None
+        state_dict = self.state.to_dict()
+        for idx, key in enumerate(sorted(state_dict.keys())):
+            if key == self.selected_key:
+                row_index = idx
+                break
+
+        if row_index is None:
+            # Fallback to dialog if row not found
+            self._show_edit_dialog(self.selected_key, value_str)
+            return
+
+        # Create inline edit container with input
+        edit_input = Input(
+            value=value_str,
+            placeholder="Enter value...",
+            id="inline_edit_input",
+        )
+
+        inline_container = Container(
+            edit_input,
+            id="inline_edit_container",
+        )
+
+        # Mount inline editor
+        table.mount(inline_container)
+
+        # Position the container over the value cell (column 1)
+        # Get the cell region for positioning
+        try:
+            # Try to get the cell region from the table
+            cell_key = table.coordinate_to_cell_key((row_index, 1))  # Column 1 = Value
+            region = table.get_cell_region(cell_key)
+            if region:
+                inline_container.styles.offset = (region.x, region.y)
+                inline_container.styles.width = region.width
+                inline_container.styles.height = region.height
+        except Exception:
+            # Fallback: position at cursor or default location
+            pass
+
+        # Focus the input
+        edit_input.focus()
+
+    def _save_inline_edit(self) -> None:
+        """Save the inline edit value."""
+        if not self.selected_key:
+            return
+
+        try:
+            input_widget = self.query_one("#inline_edit_input", Input)
+            value_str = input_widget.value.strip()
+
+            # Parse and save the value
+            value = self._parse_value(value_str)
+            self.state.update(**{self.selected_key: value})
+
+            # Refresh table
+            self._refresh_table()
+            self.notify(f"Updated: {self.selected_key}", severity="information")
+        except Exception as e:
+            self.notify(f"Error saving: {e}", severity="error")
+        finally:
+            self._close_inline_editor()
+
+    def _close_inline_editor(self) -> None:
+        """Close the inline editor without saving."""
+        try:
+            inline_container = self.query_one("#inline_edit_container")
+            inline_container.remove()
+        except Exception:
+            pass
+        finally:
+            self.editing = False
+            # Return focus to table
+            self.query_one("#state_table", DataTable).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in inline editor."""
+        if event.input.id == "inline_edit_input":
+            self._save_inline_edit()
+
+    def on_key(self, event) -> None:
+        """Handle key events - Escape to cancel inline editing."""
+        if event.key == "escape" and self.editing:
+            # Check if inline editor is active
+            try:
+                self.query_one("#inline_edit_container")
+                self._close_inline_editor()
+                event.stop()
+            except Exception:
+                pass
 
     def _parse_value(self, value_str: str) -> Any:
         """Parse a string value into appropriate type."""
