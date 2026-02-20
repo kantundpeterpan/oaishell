@@ -15,6 +15,7 @@ from textual.widgets import (
     Label,
     Button,
 )
+from textual.coordinate import Coordinate
 from textual.widget import Widget
 from textual.widgets.tree import TreeNode
 from textual.containers import (
@@ -496,6 +497,7 @@ class StateManagementScreen(ModalScreen):
         self.selected_key: Optional[str] = None
         self.editing = False
         self.editing_column: Optional[int] = None  # 0=Key, 1=Value
+        self.editing_coordinate: Optional[tuple] = None  # (row, col) to restore
 
     def compose(self) -> ComposeResult:
         """Compose the state management UI."""
@@ -725,6 +727,7 @@ class StateManagementScreen(ModalScreen):
 
         self.editing = True
         self.editing_column = column_index
+        self.editing_coordinate = coordinate
         table = self.query_one("#state_table", DataTable)
 
         # Get current value based on column
@@ -859,8 +862,13 @@ class StateManagementScreen(ModalScreen):
         finally:
             self.editing = False
             self.editing_column = None
-            # Return focus to table
-            self.query_one("#state_table", DataTable).focus()
+            # Return focus to table and restore cursor position
+            table = self.query_one("#state_table", DataTable)
+            if self.editing_coordinate:
+                row, col = self.editing_coordinate
+                table.cursor_coordinate = Coordinate(row, col)
+                self.editing_coordinate = None
+            table.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle Enter key in inline editor."""
