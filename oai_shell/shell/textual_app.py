@@ -968,43 +968,36 @@ class OAIShellApp(App):
         grid-size: 12 12;
         grid-rows: auto 1fr auto;
     }
-    
+
     Header {
         column-span: 12;
     }
-    
-    #state_panel {
-        column-span: 3;
-        row-span: 10;
-        height: 100%;
-        border:  $primary;
-        padding: 1;
-        background: $surface;
-    }
-    
+
     #output_log {
-        column-span: 9;
+        column-span: 12;
         row-span: 10;
         height: 100%;
         border: round $primary;
         background: $surface;
         scrollbar-gutter: stable;
     }
-    
+
     #input_container {
         column-span: 12;
         height: auto;
         padding: 1;
-        border: round $accent;
         background: $panel;
     }
-    
-    Input {
+
+    #command_input {
         width: 100%;
+        border: solid $accent;
+        background: $surface;
+        color: $text;
     }
-    
-    Input:focus {
-        border: tall $accent;
+
+    #command_input:focus {
+        border: solid $accent;
     }
 
     AutoComplete > AutoCompleteList {
@@ -1034,12 +1027,11 @@ class OAIShellApp(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header(show_clock=True)
-        yield StatePanel(self.state, id="state_panel")
         yield RichLog(id="output_log", highlight=True, markup=True, wrap=True)
 
         # Create input with autocomplete
         input_widget = Input(
-            placeholder="Enter command (e.g., /help, /operations, /call ...)",
+            placeholder="Enter command (e.g., /help, /exit, /state, /operations, /call ...)",
             id="command_input",
         )
 
