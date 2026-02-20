@@ -475,31 +475,18 @@ class StateManagementScreen(ModalScreen):
     #inline_edit_container {
         position: absolute;
         background: $surface;
-        border: tall $accent;
+        border: none;
         padding: 0;
         layer: overlay;
-        box-sizing: border-box;
-        min-height: 3;
     }
 
     #inline_edit_input {
         width: 100%;
-        height: 100%;
-        border: none;
+        height: auto;
+        border: solid $accent;
         padding: 0 1;
         color: $text;
         background: $surface;
-        text-style: none;
-    }
-
-    #inline_edit_input:focus {
-        border: tall $accent;
-    }
-
-    /* Ensure Input widget text is visible */
-    #inline_edit_input > .input--placeholder,
-    #inline_edit_input > .input--suggestion {
-        color: $text-muted;
     }
     """
 
@@ -791,20 +778,18 @@ class StateManagementScreen(ModalScreen):
 
             inline_container.styles.offset = (final_x, final_y)
 
-            # Set size to match cell approximately
+            # Set size - Input widget naturally takes 3 lines (border + content + border)
             if col < len(col_widths):
                 inline_container.styles.width = col_widths[col]
             else:
                 inline_container.styles.width = 25
-            inline_container.styles.height = (
-                3  # Input widget needs at least 3 lines (border + content + border)
-            )
+            inline_container.styles.height = "auto"
 
         except Exception as e:
             # Fallback: center on screen
             inline_container.styles.offset = (0, 0)
             inline_container.styles.width = 30
-            inline_container.styles.height = 1
+            inline_container.styles.height = "auto"
 
         # Focus the input after a brief delay to ensure it's mounted
         def focus_input():
