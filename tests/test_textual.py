@@ -12,6 +12,9 @@ from oai_shell.engine.client import OpenAIEngine
 from oai_shell.shell.textual_app import OAIShellApp
 
 
+import pytest
+
+@pytest.mark.anyio
 async def test_app():
     """Test the Textual app programmatically."""
     # Setup
@@ -71,6 +74,45 @@ async def test_app():
         
         pilot.app.save_screenshot("textual_login.svg")
         print("✓ Screenshot 5: Login command executed")
+        # Test autocomplete scope and parameter suggestions
+        await pilot.click("#command_input")
+        # Type /call 
+        for c in "/call ":
+            await pilot.press(c)
+        await pilot.pause(0.2)
+        
+        # Should show operations. Type 'h' for health
+        await pilot.press("h")
+        await pilot.pause(0.2)
+        # Select first suggestion (health_health_get)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        
+        # Now at '/call health_health_get '. Should show no suggestions (no params)
+        # Type a space and then '--' to see if suggestions appear (even if none for health)
+        await pilot.press(" ")
+        await pilot.press("-", "-")
+        await pilot.pause(0.2)
+        
+        # Try a more complex one: /call create_item_items_post
+        input_widget = pilot.app.query_one("#command_input")
+        input_widget.value = ""
+        for c in "/call create_item_items_post ":
+            await pilot.press(c)
+        await pilot.pause(0.5)
+        
+        # Should show parameters for create_item_items_post (item.name, item.details.color, etc.)
+        pilot.app.save_screenshot("textual_autocomplete_params.svg")
+        
+        # Select one
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        
+        # Test that entering a parameter hides it from suggestions
+        # Current value should be "/call create_item_items_post --item.name "
+        await pilot.press("-", "-")
+        await pilot.pause(0.2)
+        pilot.app.save_screenshot("textual_autocomplete_params_filtered.svg")
         
         print("\n✓ Test completed successfully!")
         print("✓ Screenshots saved: textual_initial.svg, textual_help.svg, textual_operations.svg, textual_state.svg, textual_login.svg")
