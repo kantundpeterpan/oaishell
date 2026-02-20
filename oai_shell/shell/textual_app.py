@@ -386,6 +386,282 @@ class OperationsScreen(ModalScreen):
             self.dismiss(None)
 
 
+class StateManagementScreen(ModalScreen):
+    """Modal screen for interactive state management."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close"),
+        Binding("a", "add", "Add"),
+        Binding("d", "delete", "Delete"),
+        Binding("e", "edit", "Edit"),
+    ]
+
+    CSS = """
+    StateManagementScreen {
+        align: center middle;
+    }
+    
+    #state_container {
+        width: 85%;
+        height: 80%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+    
+    #state_title {
+        height: auto;
+        content-align: center middle;
+        text-style: bold;
+        color: $primary;
+    }
+    
+    #state_table {
+        width: 100%;
+        height: 1fr;
+        border: round $primary;
+    }
+    
+    #state_footer {
+        height: auto;
+        padding: 1 0;
+    }
+    
+    #state_help {
+        height: auto;
+        text-style: dim;
+    }
+    
+    #edit_container {
+        width: 60%;
+        height: auto;
+        background: $surface;
+        border: thick $accent;
+        padding: 2;
+    }
+    
+    #edit_title {
+        text-align: center;
+        text-style: bold;
+        height: auto;
+        margin-bottom: 1;
+    }
+    
+    #edit_inputs {
+        height: auto;
+        margin: 1 0;
+    }
+    
+    #edit_buttons {
+        height: auto;
+        align: center middle;
+    }
+    """
+
+    def __init__(self, state: ClientState):
+        super().__init__()
+        self.state = state
+        self.selected_key: Optional[str] = None
+        self.editing = False
+
+    def compose(self) -> ComposeResult:
+        """Compose the state management UI."""
+        with Container(id="state_container"):
+            yield Label("State Management", id="state_title")
+            yield DataTable(id="state_table")
+            yield Label("[a]dd | [e]dit | [d]elete | [q]uit", id="state_footer")
+            yield Label(
+                "Navigate with ↑/↓ arrows, press Enter to edit", id="state_help"
+            )
+
+    def on_mount(self) -> None:
+        """Build the state table when mounted."""
+        table = self.query_one("#state_table", DataTable)
+        table.add_columns("Key", "Value", "Type")
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+        self._refresh_table()
+
+    def _refresh_table(self) -> None:
+        """Refresh the state table with current data."""
+        table = self.query_one("#state_table", DataTable)
+        table.clear()
+
+        state_dict = self.state.to_dict()
+        if not state_dict:
+            table.add_row("[dim]No state variables", "", "")
+        else:
+            for key, value in sorted(state_dict.items()):
+                value_str = (
+                    json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                )
+                # Truncate long values
+                if len(value_str) > 50:
+                    value_str = value_str[:47] + "..."
+                value_type = type(value).__name__
+                table.add_row(key, value_str, value_type)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle row selection."""
+        table = self.query_one("#state_table", DataTable)
+        row_key = event.row_key
+        row_data = table.get_row(row_key)
+
+        if row_data and row_data[0] != "[dim]No state variables":
+            self.selected_key = row_data[0]
+
+    def action_add(self) -> None:
+        """Add a new state variable."""
+        self._show_edit_dialog()
+
+    def action_edit(self) -> None:
+        """Edit the selected state variable."""
+        if self.selected_key:
+            value = self.state.get(self.selected_key)
+            value_str = (
+                json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+            )
+            self._show_edit_dialog(self.selected_key, value_str)
+        else:
+            self.notify("No state variable selected", severity="warning")
+
+    def action_delete(self) -> None:
+        """Delete the selected state variable."""
+        if not self.selected_key:
+            self.notify("No state variable selected", severity="warning")
+            return
+
+        if self.selected_key in self.state.data:
+            del self.state.data[self.selected_key]
+            self.state.save()
+            self._refresh_table()
+            self.selected_key = None
+            self.notify(f"Deleted: {self.selected_key}", severity="information")
+
+    def _show_edit_dialog(self, key: str = "", value: str = "") -> None:
+        """Show the edit/add dialog."""
+        self.editing = True
+        is_edit = bool(key)
+
+        # Create the dialog container
+        from textual.containers import Grid
+
+        dialog = Container(id="edit_container")
+
+        # Title
+        title = Label(
+            "Edit State Variable" if is_edit else "Add State Variable", id="edit_title"
+        )
+
+        # Input containers
+        inputs_container = Container(id="edit_inputs")
+        key_label = Label("Key:")
+        key_input = Input(value=key, placeholder="Enter key name", id="edit_key_input")
+        if is_edit:
+            key_input.disabled = True  # Can't change key when editing
+        value_label = Label("Value:")
+        value_input = Input(
+            value=value,
+            placeholder="Enter value (string, number, json)",
+            id="edit_value_input",
+        )
+
+        # Buttons container
+        buttons_container = Container(id="edit_buttons")
+        buttons_horizontal = Horizontal()
+        save_btn = Button("Save", variant="primary", id="save_btn")
+        cancel_btn = Button("Cancel", variant="default", id="cancel_btn")
+
+        # Assemble the dialog
+        inputs_container.mount(key_label, key_input, value_label, value_input)
+        buttons_horizontal.mount(save_btn, cancel_btn)
+        buttons_container.mount(buttons_horizontal)
+        dialog.mount(title, inputs_container, buttons_container)
+
+        # Mount the dialog as an overlay
+        self.mount(dialog)
+        self.query_one("#edit_value_input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses in the edit dialog."""
+        button_id = event.button.id
+
+        if button_id == "cancel_btn":
+            self._close_edit_dialog()
+        elif button_id == "save_btn":
+            self._save_state_value()
+
+    def _save_state_value(self) -> None:
+        """Save the state value from the edit dialog."""
+        key_input = self.query_one("#edit_key_input", Input)
+        value_input = self.query_one("#edit_value_input", Input)
+
+        key = key_input.value.strip()
+        value_str = value_input.value.strip()
+
+        if not key:
+            self.notify("Key cannot be empty", severity="error")
+            return
+
+        # Parse the value using the same logic as the command handler
+        value = self._parse_value(value_str)
+
+        # Update state
+        self.state.update(**{key: value})
+
+        # Refresh and close
+        self._refresh_table()
+        self._close_edit_dialog()
+        self.notify(f"Saved: {key}", severity="information")
+
+    def _close_edit_dialog(self) -> None:
+        """Close the edit dialog."""
+        dialog = self.query_one("#edit_container")
+        dialog.remove()
+        self.editing = False
+        # Return focus to the table
+        self.query_one("#state_table", DataTable).focus()
+
+    def _parse_value(self, value_str: str) -> Any:
+        """Parse a string value into appropriate type."""
+        value_str = value_str.strip()
+
+        # Try to parse as JSON first (for objects, arrays, null)
+        if (
+            (value_str.startswith("{") and value_str.endswith("}"))
+            or (value_str.startswith("[") and value_str.endswith("]"))
+            or value_str in ["null", "true", "false"]
+        ):
+            try:
+                return json.loads(value_str)
+            except json.JSONDecodeError:
+                pass
+
+        # Try boolean
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+        if value_str.lower() in ["null", "none"]:
+            return None
+
+        # Try integer
+        try:
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Try float
+        try:
+            return float(value_str)
+        except ValueError:
+            pass
+
+        # Fall back to string
+        return value_str
+
+
 class OAIShellAutoComplete(AutoComplete):
     """Custom AutoComplete that only completes the word under the cursor."""
 
@@ -706,6 +982,7 @@ class OAIShellApp(App):
         table.add_row("/state set <key> <value>", "Set a state value")
         table.add_row("/state delete <key>", "Delete a state variable")
         table.add_row("/state clear", "Clear all state variables")
+        table.add_row("/state ui", "Open interactive state management UI")
         table.add_row(
             "/theme <name>", "Change color theme (dark, light, dark-high-contrast)"
         )
@@ -788,10 +1065,12 @@ class OAIShellApp(App):
             await self._handle_state_delete(args[1:])
         elif subcommand == "clear":
             await self._handle_state_clear()
+        elif subcommand == "ui":
+            await self._show_state_ui()
         else:
             output_log.write(
                 f"[yellow]Unknown state subcommand: {subcommand}[/yellow]\n"
-                "[dim]Available: set, get, list, delete/rm, clear[/dim]"
+                "[dim]Available: set, get, list, delete/rm, clear, ui[/dim]"
             )
 
     def _parse_value(self, value_str: str) -> Any:
@@ -935,6 +1214,16 @@ class OAIShellApp(App):
         state_panel.update_display()
 
         output_log.write("[green]All state cleared[/green]")
+
+    async def _show_state_ui(self):
+        """Show the state management UI modal."""
+
+        def handle_result(result):
+            # When the modal closes, refresh the state panel
+            state_panel = self.query_one("#state_panel", StatePanel)
+            state_panel.update_display()
+
+        await self.push_screen(StateManagementScreen(self.state), handle_result)
 
     def show_state(self):
         """Display current state."""
