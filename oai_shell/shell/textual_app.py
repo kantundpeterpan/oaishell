@@ -495,6 +495,7 @@ class StateManagementScreen(ModalScreen):
         self.state = state
         self.selected_key: Optional[str] = None
         self.editing = False
+        self.editing_column: Optional[int] = None  # 0=Key, 1=Value
 
     def compose(self) -> ComposeResult:
         """Compose the state management UI."""
@@ -503,7 +504,7 @@ class StateManagementScreen(ModalScreen):
             yield DataTable(id="state_table")
             yield Label("[a]dd | [e]dit | [d]elete | [q]uit", id="state_footer")
             yield Label(
-                "Navigate with arrows, Enter=edit Value, 'e'=edit Key/Value dialog",
+                "Navigate with arrows, Enter=edit cell, 'e'=edit selected",
                 id="state_help",
             )
 
@@ -538,9 +539,8 @@ class StateManagementScreen(ModalScreen):
 
         # Edit based on column
         if column_index == 0:
-            # Key column - just select the row, don't open editor on Enter
-            # User can press 'e' to edit if needed
-            return
+            # Key column - inline edit the key name
+            self._show_inline_editor_at_cell(event.coordinate, column_index=0)
         elif column_index == 1:
             # Value column - use inline editing for simple values, dialog for complex
             value = self.state.get(self.selected_key)
@@ -549,7 +549,7 @@ class StateManagementScreen(ModalScreen):
                 self._show_edit_dialog(self.selected_key, value_str)
             else:
                 # Show inline editor at the selected cell
-                self._show_inline_editor_at_cell(event.coordinate)
+                self._show_inline_editor_at_cell(event.coordinate, column_index=1)
 
     def action_add(self) -> None:
         """Add a new state variable."""
@@ -581,19 +581,15 @@ class StateManagementScreen(ModalScreen):
 
         if column == 2:  # Type column - not editable
             return
-        elif column == 0:  # Key column - use dialog
-            value = self.state.get(self.selected_key)
-            value_str = (
-                json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-            )
-            self._show_edit_dialog(self.selected_key, value_str)
+        elif column == 0:  # Key column - inline edit
+            self._show_inline_editor_at_cell(cursor_coordinate, column_index=0)
         else:  # Value column
             value = self.state.get(self.selected_key)
             if isinstance(value, (dict, list)):
                 value_str = json.dumps(value)
                 self._show_edit_dialog(self.selected_key, value_str)
             else:
-                self._show_inline_editor_at_cell(cursor_coordinate)
+                self._show_inline_editor_at_cell(cursor_coordinate, column_index=1)
 
     def _refresh_table(self) -> None:
         """Refresh the state table with current data."""
@@ -717,22 +713,35 @@ class StateManagementScreen(ModalScreen):
         # Return focus to the table
         self.query_one("#state_table", DataTable).focus()
 
-    def _show_inline_editor_at_cell(self, coordinate) -> None:
-        """Show inline editor at the specified cell coordinate."""
+    def _show_inline_editor_at_cell(self, coordinate, column_index: int = 1) -> None:
+        """Show inline editor at the specified cell coordinate.
+
+        Args:
+            coordinate: The (row, col) coordinate in the table
+            column_index: 0 for Key column, 1 for Value column
+        """
         if not self.selected_key:
             return
 
         self.editing = True
+        self.editing_column = column_index
         table = self.query_one("#state_table", DataTable)
 
-        # Get current value
-        value = self.state.get(self.selected_key)
-        value_str = str(value) if value is not None else ""
+        # Get current value based on column
+        if column_index == 0:
+            # Editing the key name
+            value_str = self.selected_key
+            placeholder = "Enter key name..."
+        else:
+            # Editing the value
+            value = self.state.get(self.selected_key)
+            value_str = str(value) if value is not None else ""
+            placeholder = "Enter value..."
 
         # Create inline edit container with input
         edit_input = Input(
             value=value_str,
-            placeholder="Enter value...",
+            placeholder=placeholder,
             id="inline_edit_input",
         )
 
@@ -809,13 +818,32 @@ class StateManagementScreen(ModalScreen):
             input_widget = self.query_one("#inline_edit_input", Input)
             value_str = input_widget.value.strip()
 
-            # Parse and save the value
-            value = self._parse_value(value_str)
-            self.state.update(**{self.selected_key: value})
+            if self.editing_column == 0:
+                # Editing the key name - rename the key
+                new_key = value_str
+                if not new_key:
+                    self.notify("Key cannot be empty", severity="error")
+                    return
+                if new_key != self.selected_key:
+                    if new_key in self.state.data:
+                        self.notify(f"Key '{new_key}' already exists", severity="error")
+                        return
+                    # Get the value and delete old key
+                    value = self.state.get(self.selected_key)
+                    del self.state.data[self.selected_key]
+                    # Create new key with same value
+                    self.state.data[new_key] = value
+                    self.state.save()
+                    self.selected_key = new_key
+                    self.notify(f"Renamed to: {new_key}", severity="information")
+            else:
+                # Editing the value
+                value = self._parse_value(value_str)
+                self.state.update(**{self.selected_key: value})
+                self.notify(f"Updated: {self.selected_key}", severity="information")
 
             # Refresh table
             self._refresh_table()
-            self.notify(f"Updated: {self.selected_key}", severity="information")
         except Exception as e:
             self.notify(f"Error saving: {e}", severity="error")
         finally:
@@ -830,6 +858,7 @@ class StateManagementScreen(ModalScreen):
             pass
         finally:
             self.editing = False
+            self.editing_column = None
             # Return focus to table
             self.query_one("#state_table", DataTable).focus()
 
