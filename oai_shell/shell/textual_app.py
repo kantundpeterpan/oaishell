@@ -331,6 +331,37 @@ class OperationsScreen(ModalScreen):
             self.dismiss(None)
 
 
+class OAIShellAutoComplete(AutoComplete):
+    """Custom AutoComplete that only completes the word under the cursor."""
+
+    def get_search_string(self, target_state) -> str:
+        """The search string is just the word currently being typed."""
+        before_cursor = target_state.text[:target_state.cursor_position]
+        if not before_cursor or before_cursor.endswith(" "):
+            return ""
+        
+        last_word = before_cursor.split()[-1]
+        return last_word
+
+    def apply_completion(self, value: str, state) -> None:
+        """Insert ONLY the completion part, replacing the current word."""
+        target = self.target
+        before_cursor = state.text[:state.cursor_position]
+        
+        # Find the start of the word being replaced
+        if not before_cursor or before_cursor.endswith(" "):
+            # We are inserting at cursor (e.g. after a space)
+            target.insert_text_at_cursor(value)
+        else:
+            # We are replacing the current word
+            last_space_idx = before_cursor.rfind(" ")
+            word_start = last_space_idx + 1 if last_space_idx != -1 else 0
+            
+            # Update target value by replacing the word segment
+            new_text = state.text[:word_start] + value + state.text[state.cursor_position:]
+            target.value = new_text
+            target.cursor_position = word_start + len(value)
+
 class OAIShellApp(App):
     """Textual TUI application for OAI-Shell."""
     
@@ -418,7 +449,7 @@ class OAIShellApp(App):
         yield Container(input_widget, id="input_container")
         
         # Add autocomplete overlay
-        yield AutoComplete(
+        yield OAIShellAutoComplete(
             target="#command_input",
             candidates=self._get_autocomplete_items
         )
@@ -431,29 +462,21 @@ class OAIShellApp(App):
         if not value:
             return []
         
-        # We want to maintain context before and after the cursor
+        # Context before and after cursor
         before_cursor = value[:cursor_pos]
         after_cursor = value[cursor_pos:]
         words_before = before_cursor.split()
         
-        # Determine the base text (everything before the current word being typed)
-        # and the last word (the word currently being typed)
-        if before_cursor.endswith(' '):
-            base_text = before_cursor
+        # Determine the word currently being typed
+        if not before_cursor or before_cursor.endswith(' '):
             last_word = ""
         else:
-            last_space_idx = before_cursor.rfind(' ')
-            if last_space_idx == -1:
-                base_text = ""
-                last_word = before_cursor
-            else:
-                base_text = before_cursor[:last_space_idx + 1]
-                last_word = before_cursor[last_space_idx + 1:]
+            last_word = words_before[-1]
         
         items = []
         
         # 1. Command suggestions (at the very beginning)
-        if len(words_before) <= 1 and not (len(words_before) == 1 and before_cursor.endswith(' ')):
+        if len(words_before) == 0 or (len(words_before) == 1 and not before_cursor.endswith(' ')):
             internals = [
                 '/help', '/exit', '/state', '/operations', '/call', '/theme'
             ]
@@ -462,7 +485,8 @@ class OAIShellApp(App):
             
             for cmd in all_cmds:
                 if cmd.startswith(last_word):
-                    items.append(DropdownItem(main=cmd + after_cursor))
+                    # We only suggest the command itself, not the full line
+                    items.append(DropdownItem(main=cmd))
         
         # 2. Operation IDs after /call
         elif words_before and words_before[0] == '/call':
@@ -471,7 +495,7 @@ class OAIShellApp(App):
                 # Typing the operation ID
                 for op_id in sorted(self.engine.operations.keys()):
                     if op_id.lower().startswith(last_word.lower()):
-                        items.append(DropdownItem(main=base_text + op_id + after_cursor))
+                        items.append(DropdownItem(main=op_id))
             
             # 3. Parameter suggestions after /call <op_id>
             elif len(words_before) >= 2:
@@ -480,32 +504,35 @@ class OAIShellApp(App):
                     all_params = self.engine.get_params_for_operation(op_id)
                     
                     # Filter out parameters already present in the full command
-                    all_words = value.split()
-                    used_params = {w.split('=')[0].lstrip('-') for w in all_words if w.startswith('--')}
+                    all_words = value.replace('=', ' ').split()
+                    used_params = {w.lstrip('-') for w in all_words if w.startswith('--')}
                     
                     # If typing a parameter, don't filter it out
-                    current_param_typing = last_word.split('=')[0].lstrip('-') if last_word.startswith('--') else None
+                    current_param_typing = last_word.replace('=', ' ').split()[0].lstrip('-') if last_word.startswith('--') else None
                     
                     for p in all_params:
-                        param_name = f"--{p['name']}"
-                        if current_word.startswith('--'):
-                            if param_name.startswith(current_word):
-                                replacement = value.rsplit(current_word, 1)[0] + param_name + " "
-                                items.append(DropdownItem(main=replacement))
-                        else:
-                            # Suggest parameters not yet used
-                            param_text = f"--{p['name']}"
-                            if param_text not in value:
-                                items.append(DropdownItem(main=value + param_name + " "))
+                        param_name = p['name']
+                        full_param = f"--{param_name}"
+                        
+                        if param_name in used_params and param_name != current_param_typing:
+                            continue
+                        
+                        if full_param.startswith(last_word):
+                            type_hint = p.get('type', 'any')
+                            prefix_text = f"({p['in']}) {type_hint}"
+                            items.append(DropdownItem(
+                                main=full_param, 
+                                prefix=prefix_text
+                            ))
         
-        # Theme suggestions
-        elif value.startswith('/theme ') and len(words) == 2 and not value.endswith(' '):
+        # 4. Theme suggestions
+        elif words_before and words_before[0] == '/theme':
             themes = ['dark', 'light', 'dark-high-contrast']
             if (len(words_before) == 1 and before_cursor.endswith(' ')) or \
                (len(words_before) == 2 and not before_cursor.endswith(' ')):
                 for theme in themes:
                     if theme.startswith(last_word.lower()):
-                        items.append(DropdownItem(main=base_text + theme + after_cursor))
+                        items.append(DropdownItem(main=theme))
         
         return items[:15]
     

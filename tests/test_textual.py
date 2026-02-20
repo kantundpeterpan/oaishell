@@ -34,6 +34,46 @@ async def test_app():
         # Wait for app to mount
         await pilot.pause(1.0)
         
+        # Initial state screenshot
+        pilot.app.save_screenshot("textual_initial.svg")
+        print("✓ Screenshot 1: Initial state")
+        
+        # Test /help command
+        await pilot.click("#command_input")
+        await pilot.press(*"/help")
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        
+        # Take a screenshot
+        pilot.app.save_screenshot("textual_help.svg")
+        print("✓ Screenshot 2: Help command")
+        
+        # Test /operations command
+        await pilot.click("#command_input")
+        await pilot.press(*"/operations")
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        
+        # Take another screenshot
+        pilot.app.save_screenshot("textual_operations.svg")
+        print("✓ Screenshot 3: Operations list")
+        
+        # Test /state command
+        input_widget = pilot.app.query_one("#command_input")
+        input_widget.value = "/state"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        
+        pilot.app.save_screenshot("textual_state.svg")
+        print("✓ Screenshot 4: State display")
+        
+        # Test /login command (custom command)
+        input_widget.value = "/login alice secret123"
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+        
+        pilot.app.save_screenshot("textual_login.svg")
+        print("✓ Screenshot 5: Login command executed")
         # Test autocomplete scope and parameter suggestions
         await pilot.click("#command_input")
         # Type /call 
