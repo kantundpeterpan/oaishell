@@ -13,7 +13,8 @@ state:
   defaults:
     monster: "betty"
     language: "en"
-
+    origin: "dev_terminal"
+    user_id: "3a05e90c-eaa8-480a-8d45-a445cf6abc6f"
 commands:
   # Replicates /init [user_id] [monster] [language]
   /init:
@@ -28,8 +29,18 @@ commands:
         # Extracts session_id from the JSON response to persist it
         session_id: "json:session_id"
         user_id: "json:user_id"
-    default_response_field: "messages[0].content"
-
+    formatting:
+      title: "📖 Message"
+      blocks:
+        - fields:
+          - path: "messages[0].content"
+            label: "Response"
+            format: "markdown"
+        - layout: "table"
+          fields:
+            - path: "dropdown_options"
+              label: "Dropdown"
+              format: "markdown"
   # Replicates /send <message>
   /send:
     operationId: "handle_message_api_v1_chat_post"
@@ -43,15 +54,41 @@ commands:
     after_call:
       save_to_state:
         session_id: "json:session_id"
-    default_response_field: "messages[0].content"
-
+    formatting:
+      title: "📖 Message"
+      blocks:
+        - fields:
+          - path: "messages[0].content"
+            label: "Response"
+            format: "markdown"
+        - layout: "table"
+          fields:
+            - path: "dropdown_options"
+              label: "Dropdown"
+              format: "markdown"
+        - layout: "table"
+          fields:
+            - path: "emotion_options"
+              label: "Emojis"
+              format: "markdown"
   # Replicates /emotion <emotion>
   /emotion:
     operationId: "handle_emotion_selection_api_v1_chat_emotion_post"
     description: "Submit emotion selection"
     mapping:
       emotion: "$1"
-    default_response_field: "messages[0].content"
+    formatting:
+      title: "📖 Message"
+      blocks:
+        - fields:
+          - path: "messages[0].content"
+            label: "Response"
+            format: "markdown"
+        - layout: "table"
+          fields:
+            - path: "dropdown_options"
+              label: "Choice"
+              format: "markdown"
 
   # Replicates /dropdown <selection>
   /dropdown:
@@ -59,8 +96,21 @@ commands:
     description: "Submit dropdown selection"
     mapping:
       selection: "$1"
-    default_response_field: "messages[0].content"
-
+    formatting:
+      title: "📖 Message"
+      blocks:
+        - fields:
+          - path: "messages[0].content"
+            label: "Response"
+            format: "markdown"
+        - layout: "table"
+          fields:
+            - path: "dropdown_options"
+              label: "Dropdown"
+              format: "markdown"
+            - path: "emotions"
+              label: "emotions"
+              format: "markdown"
   # Replicates /upload <file>
   # /upload:
   #   operationId: "upload_files_api_v1_files_upload_post"
