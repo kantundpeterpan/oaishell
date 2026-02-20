@@ -479,6 +479,7 @@ class StateManagementScreen(ModalScreen):
         padding: 0;
         layer: overlay;
         box-sizing: border-box;
+        min-height: 3;
     }
 
     #inline_edit_input {
@@ -488,10 +489,17 @@ class StateManagementScreen(ModalScreen):
         padding: 0 1;
         color: $text;
         background: $surface;
+        text-style: none;
     }
 
     #inline_edit_input:focus {
         border: tall $accent;
+    }
+
+    /* Ensure Input widget text is visible */
+    #inline_edit_input > .input--placeholder,
+    #inline_edit_input > .input--suggestion {
+        color: $text-muted;
     }
     """
 
@@ -508,7 +516,8 @@ class StateManagementScreen(ModalScreen):
             yield DataTable(id="state_table")
             yield Label("[a]dd | [e]dit | [d]elete | [q]uit", id="state_footer")
             yield Label(
-                "Navigate with ↑/↓ arrows, press Enter to edit", id="state_help"
+                "Navigate with arrows, Enter=edit Value, 'e'=edit Key/Value dialog",
+                id="state_help",
             )
 
     def on_mount(self) -> None:
@@ -542,12 +551,9 @@ class StateManagementScreen(ModalScreen):
 
         # Edit based on column
         if column_index == 0:
-            # Key column - use dialog (editing keys is more complex)
-            value = self.state.get(self.selected_key)
-            value_str = (
-                json.dumps(value) if isinstance(value, (dict, list)) else str(value)
-            )
-            self._show_edit_dialog(self.selected_key, value_str)
+            # Key column - just select the row, don't open editor on Enter
+            # User can press 'e' to edit if needed
+            return
         elif column_index == 1:
             # Value column - use inline editing for simple values, dialog for complex
             value = self.state.get(self.selected_key)
@@ -790,7 +796,9 @@ class StateManagementScreen(ModalScreen):
                 inline_container.styles.width = col_widths[col]
             else:
                 inline_container.styles.width = 25
-            inline_container.styles.height = 1  # Single line
+            inline_container.styles.height = (
+                3  # Input widget needs at least 3 lines (border + content + border)
+            )
 
         except Exception as e:
             # Fallback: center on screen
