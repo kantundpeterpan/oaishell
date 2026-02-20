@@ -480,13 +480,18 @@ class StateManagementScreen(ModalScreen):
         layer: overlay;
         box-sizing: border-box;
     }
-    
+
     #inline_edit_input {
         width: 100%;
         height: 100%;
         border: none;
         padding: 0 1;
-        content-align: center middle;
+        color: $text;
+        background: $surface;
+    }
+
+    #inline_edit_input:focus {
+        border: tall $accent;
     }
     """
 
@@ -793,8 +798,14 @@ class StateManagementScreen(ModalScreen):
             inline_container.styles.width = 30
             inline_container.styles.height = 1
 
-        # Focus the input
-        edit_input.focus()
+        # Focus the input after a brief delay to ensure it's mounted
+        def focus_input():
+            try:
+                self.query_one("#inline_edit_input", Input).focus()
+            except Exception:
+                pass
+
+        self.set_timer(0.05, focus_input)
 
     def _save_inline_edit(self) -> None:
         """Save the inline edit value."""
