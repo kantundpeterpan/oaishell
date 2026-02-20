@@ -237,7 +237,10 @@ class OperationsScreen(ModalScreen):
                     op_node.data = {"type": "op", "op_id": op_id, "op": op}
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
-        """Handle tree node selection."""
+        """Handle tree node selection (mouse click).
+
+        Updates the request/response panels when an operation is selected.
+        """
         node = event.node
         if not node.data or node.data.get("type") != "op":
             return
@@ -251,6 +254,54 @@ class OperationsScreen(ModalScreen):
 
         # Update response panel
         self._update_response_panel(op)
+
+    def on_tree_node_highlighted(self, event) -> None:
+        """Handle tree node highlight (keyboard navigation).
+
+        Updates the request/response panels when navigating with arrow keys.
+        """
+        node = event.node
+        if not node.data or node.data.get("type") != "op":
+            return
+
+        op = node.data["op"]
+
+        # Update request panel
+        self._update_request_panel(op)
+
+        # Update response panel
+        self._update_response_panel(op)
+
+    def on_key(self, event) -> None:
+        """Handle key events.
+
+        When Enter is pressed with an operation highlighted, close the screen.
+        This addresses issue #10.
+        """
+        if event.key == "enter":
+            tree = self.query_one("#operations_tree", Tree)
+            cursor_node = tree.cursor_node
+            if (
+                cursor_node
+                and cursor_node.data
+                and cursor_node.data.get("type") == "op"
+            ):
+                op_id = cursor_node.data["op_id"]
+                # Build command with required parameters (same logic as action_dismiss)
+                cmd = f"/call {op_id}"
+                op = self.engine.operations.get(op_id)
+                if op:
+                    all_params = self.engine.get_params_for_operation(op_id)
+                    required_missing = [
+                        p["name"]
+                        for p in all_params
+                        if p.get("required") and self.state.get(p["name"]) is None
+                    ]
+                    for p_name in required_missing:
+                        cmd += f" --{p_name} "
+                self.dismiss(cmd + " ")
+                # Stop event propagation to prevent input submission
+                event.stop()
 
     def _build_schema_tree(
         self, schema: Dict[str, Any], name: str = "root"
@@ -725,6 +776,8 @@ class OAIShellApp(App):
                 # Set the returned command in the input
                 input_widget = self.query_one("#command_input", Input)
                 input_widget.value = result
+                # Position cursor at the end for easy parameter entry
+                input_widget.cursor_position = len(result)
                 input_widget.focus()
 
         await self.push_screen(
