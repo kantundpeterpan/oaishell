@@ -127,7 +127,7 @@ commands:
 
 # TUI customization for better visual representation
 tui:
-  aggregation_depth: 2 # Groups by /api/v1/
+# aggregation_depth: 2 # Groups by /api/v1/
   type_icons:
     string: "💬"
     object: "📦"
