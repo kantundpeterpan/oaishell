@@ -679,7 +679,7 @@ class OAIShellApp(App):
             elif cmd == "/operations":
                 await self.show_operations_interactive()
             elif cmd == "/state":
-                self.show_state()
+                await self.handle_state_command(args)
             elif cmd == "/theme":
                 self.handle_theme(args)
             elif cmd == "/call":
@@ -701,6 +701,11 @@ class OAIShellApp(App):
         table.add_row("/help", "Show this help")
         table.add_row("/operations", "Interactive API operations explorer")
         table.add_row("/state", "Show current state")
+        table.add_row("/state list", "List all state variables")
+        table.add_row("/state get <key>", "Get a specific state value")
+        table.add_row("/state set <key> <value>", "Set a state value")
+        table.add_row("/state delete <key>", "Delete a state variable")
+        table.add_row("/state clear", "Clear all state variables")
         table.add_row(
             "/theme <name>", "Change color theme (dark, light, dark-high-contrast)"
         )
@@ -762,13 +767,202 @@ class OAIShellApp(App):
         self._current_theme_name = theme_name
         output_log.write(f"[green]Theme changed to:[/green] {theme_name}")
 
+    async def handle_state_command(self, args: List[str]):
+        """Handle /state command with subcommands."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if not args:
+            # No arguments - just refresh the display
+            self.show_state()
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "set":
+            await self._handle_state_set(args[1:])
+        elif subcommand == "get":
+            await self._handle_state_get(args[1:])
+        elif subcommand == "list":
+            self.show_state()
+        elif subcommand == "delete" or subcommand == "rm":
+            await self._handle_state_delete(args[1:])
+        elif subcommand == "clear":
+            await self._handle_state_clear()
+        else:
+            output_log.write(
+                f"[yellow]Unknown state subcommand: {subcommand}[/yellow]\n"
+                "[dim]Available: set, get, list, delete/rm, clear[/dim]"
+            )
+
+    def _parse_value(self, value_str: str) -> Any:
+        """Parse a string value into appropriate type."""
+        value_str = value_str.strip()
+
+        # Try to parse as JSON first (for objects, arrays, null)
+        if (
+            (value_str.startswith("{") and value_str.endswith("}"))
+            or (value_str.startswith("[") and value_str.endswith("]"))
+            or value_str == "null"
+            or value_str == "true"
+            or value_str == "false"
+        ):
+            try:
+                return json.loads(value_str)
+            except json.JSONDecodeError:
+                pass
+
+        # Try boolean
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+        if value_str.lower() == "null" or value_str.lower() == "none":
+            return None
+
+        # Try integer
+        try:
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Try float
+        try:
+            return float(value_str)
+        except ValueError:
+            pass
+
+        # Fall back to string
+        return value_str
+
+    async def _handle_state_set(self, args: List[str]):
+        """Handle 'set' subcommand: /state set <key> <value>."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if len(args) < 2:
+            output_log.write(
+                "[red]Usage:[/red] /state set <key> <value>\n"
+                "[dim]Examples:[/dim]\n"
+                "  /state set session_id abc123\n"
+                "  /state set count 42\n"
+                "  /state set enabled true\n"
+                '  /state set data \'{"key": "value"}\''
+            )
+            return
+
+        key = args[0]
+        # Join remaining args in case value has spaces
+        value_str = " ".join(args[1:])
+        value = self._parse_value(value_str)
+
+        # Update state
+        self.state.update(**{key: value})
+
+        # Update the state panel
+        state_panel = self.query_one("#state_panel", StatePanel)
+        state_panel.update_display()
+
+        # Display confirmation
+        value_display = (
+            json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+        )
+        output_log.write(
+            f"[green]State set:[/green] {key} = {value_display} ({type(value).__name__})"
+        )
+
+    async def _handle_state_get(self, args: List[str]):
+        """Handle 'get' subcommand: /state get <key>."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if len(args) < 1:
+            output_log.write("[red]Usage:[/red] /state get <key>")
+            return
+
+        key = args[0]
+        value = self.state.get(key)
+
+        if value is None and key not in self.state.to_dict():
+            output_log.write(f"[yellow]Key not found:[/yellow] {key}")
+            return
+
+        # Format the output based on type
+        value_type = type(value).__name__
+        if isinstance(value, (dict, list)):
+            value_display = json.dumps(value, indent=2)
+            output_log.write(
+                Panel(
+                    Syntax(value_display, "json", background_color="default"),
+                    title=f"[cyan]{key}[/cyan] ([dim]{value_type}[/dim])",
+                    border_style="green",
+                )
+            )
+        else:
+            output_log.write(f"[cyan]{key}[/cyan] ([dim]{value_type}[/dim]): {value}")
+
+    async def _handle_state_delete(self, args: List[str]):
+        """Handle 'delete' subcommand: /state delete <key>."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        if len(args) < 1:
+            output_log.write("[red]Usage:[/red] /state delete <key>")
+            return
+
+        key = args[0]
+
+        if key not in self.state.to_dict():
+            output_log.write(f"[yellow]Key not found:[/yellow] {key}")
+            return
+
+        # Remove from state
+        del self.state.data[key]
+        self.state.save()
+
+        # Update the state panel
+        state_panel = self.query_one("#state_panel", StatePanel)
+        state_panel.update_display()
+
+        output_log.write(f"[green]Deleted:[/green] {key}")
+
+    async def _handle_state_clear(self):
+        """Handle 'clear' subcommand: /state clear."""
+        output_log = self.query_one("#output_log", RichLog)
+
+        # Clear all state
+        self.state.data.clear()
+        self.state.save()
+
+        # Update the state panel
+        state_panel = self.query_one("#state_panel", StatePanel)
+        state_panel.update_display()
+
+        output_log.write("[green]All state cleared[/green]")
+
     def show_state(self):
         """Display current state."""
         state_panel = self.query_one("#state_panel", StatePanel)
         state_panel.update_display()
 
         output_log = self.query_one("#output_log", RichLog)
-        output_log.write("[green]State panel updated[/green]")
+
+        # Display state in output log as well
+        state_dict = self.state.to_dict()
+        if not state_dict:
+            output_log.write("[dim]No state variables set[/dim]")
+        else:
+            table = RichTable(
+                title="[bold cyan]State Variables[/bold cyan]", box=None, padding=(0, 1)
+            )
+            table.add_column("Key", style="yellow")
+            table.add_column("Value", style="green")
+            table.add_column("Type", style="dim")
+
+            for k, v in state_dict.items():
+                v_str = json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+                table.add_row(k, v_str[:40], type(v).__name__)
+
+            output_log.write(table)
+            output_log.write(
+                "[dim]Use '/state set <key> <value>' to modify, '/state get <key>' to view[/dim]"
+            )
 
     def _parse_cli_args(
         self, args: List[str]
