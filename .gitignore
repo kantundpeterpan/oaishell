@@ -212,6 +212,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# pip version-specifier artifacts (e.g. from `pip install "pkg>=X.Y"` typos)
+=*
+
 # Streamlit
 .streamlit/secrets.toml
 __pycache__/
