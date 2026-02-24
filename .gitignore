@@ -220,3 +220,7 @@ __marimo__/
 __pycache__/
 *.pyc
 .*.json
+
+# Test artifacts and screenshots
+*.svg
+textual_demo.html
