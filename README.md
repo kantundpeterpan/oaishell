@@ -6,6 +6,7 @@
 This project is **vibecoded**. It was built with AI agents, moving fast from concept to shell. It's experimental, stateful, and designed for those who want to interact with APIs at the speed of thought.
 
 ## 🚀 Key Features
+*   **Modern TUI**: Built with Textual for a beautiful, reactive terminal interface.
 *   **Dynamic Discovery**: Connect to any URL and explore endpoints instantly.
 *   **Smart Autocomplete**: Tab-complete commands, operation IDs, and parameters.
 *   **State Persistence**: Automatically tracks and injects variables like `session_id` or `auth_token`.
@@ -20,6 +21,9 @@ python3 oai_shell/main.py --base-url http://localhost:8000
 
 # Run with a custom configuration
 python3 oai_shell/main.py --config examples/stopchat.yaml
+
+# Use legacy prompt-toolkit interface
+python3 oai_shell/main.py --config examples/stopchat.yaml --legacy
 ```
 
 ## 📖 Documentation
@@ -27,6 +31,7 @@ Detailed information is available in the `doc/` directory:
 
 *   **[Architecture](doc/architecture.md)**: How the engine and shell work together.
 *   **[Configuration](doc/configuration.md)**: Writing your own `oai-shell.yaml`.
+*   **[Textual TUI](doc/TEXTUAL_PORT.md)**: Information about the new Textual interface.
 *   **[Technical Index](doc/index.md)**: Full table of contents.
 
 ---
