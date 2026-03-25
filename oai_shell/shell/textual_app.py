@@ -42,6 +42,9 @@ from ..engine.client import OpenAIEngine, ClientState, EngineError
 from ..engine.utils import PayloadAssembler, SchemaPathResolver
 from ..config.models import ShellConfig
 
+# State keys that are treated as bearer tokens (checked in order; first match wins).
+TOKEN_KEYS = ["access_token", "token", "bearer_token", "auth_token"]
+
 
 class OAIShellSuggester(Suggester):
     """Custom suggester for OAI-Shell commands and operations."""
@@ -60,7 +63,7 @@ class OAIShellSuggester(Suggester):
 
         # Suggest commands that start with /
         if value.startswith("/") and (len(words) <= 1 or " " not in value):
-            internals = ["/help", "/exit", "/state", "/operations", "/call", "/theme"]
+            internals = ["/help", "/exit", "/state", "/operations", "/call", "/theme", "/auth"]
             custom = list(self.config.commands.keys())
             all_cmds = internals + custom
 
@@ -1077,6 +1080,40 @@ class OAIShellApp(App):
         self.sub_title = f"Connected to {engine.base_url}"
         self._current_theme_name = "dark"  # Default theme name
 
+        # Sync bearer token: if no CLI token was provided, initialise from state
+        if not self.engine.token:
+            self._sync_token_from_state()
+
+    # ------------------------------------------------------------------
+    # Auth helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _mask_token(token: str) -> str:
+        """Return a redacted representation of *token* for display purposes."""
+        if not token:
+            return ""
+        if len(token) <= 8:
+            return "***"
+        return f"{token[:4]}...{token[-4:]}"
+
+    def _sync_token_from_state(self) -> None:
+        """Check state for a known token key and copy the value to the engine."""
+        for key in TOKEN_KEYS:
+            value = self.state.get(key)
+            if value and isinstance(value, str):
+                self.engine.set_token(value)
+                return
+
+    def _update_auth_status(self) -> None:
+        """Refresh the app sub-title to reflect current authentication status."""
+        base = f"Connected to {self.engine.base_url}"
+        if self.engine.token:
+            masked = self._mask_token(self.engine.token)
+            self.sub_title = f"{base}  🔑 {masked}"
+        else:
+            self.sub_title = base
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header(show_clock=True)
@@ -1120,7 +1157,7 @@ class OAIShellApp(App):
         if len(words_before) == 0 or (
             len(words_before) == 1 and not before_cursor.endswith(" ")
         ):
-            internals = ["/help", "/exit", "/state", "/operations", "/call", "/theme"]
+            internals = ["/help", "/exit", "/state", "/operations", "/call", "/theme", "/auth"]
             custom = list(self.config.commands.keys())
             all_cmds = internals + custom
 
@@ -1185,6 +1222,16 @@ class OAIShellApp(App):
                     if theme.startswith(last_word.lower()):
                         items.append(DropdownItem(main=theme))
 
+        # 5. Auth subcommand suggestions
+        elif words_before and words_before[0] == "/auth":
+            subcommands = ["set", "status", "clear"]
+            if (len(words_before) == 1 and before_cursor.endswith(" ")) or (
+                len(words_before) == 2 and not before_cursor.endswith(" ")
+            ):
+                for sub in subcommands:
+                    if sub.startswith(last_word.lower()):
+                        items.append(DropdownItem(main=sub))
+
         return items[:15]
 
     def on_mount(self) -> None:
@@ -1229,6 +1276,9 @@ class OAIShellApp(App):
         # Focus on input
         self.query_one("#command_input", Input).focus()
 
+        # Update the header subtitle to reflect current auth status
+        self._update_auth_status()
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command submission."""
         command = event.value.strip()
@@ -1266,6 +1316,8 @@ class OAIShellApp(App):
                 await self.handle_state_command(args)
             elif cmd == "/theme":
                 self.handle_theme(args)
+            elif cmd == "/auth":
+                await self.handle_auth_command(args)
             elif cmd == "/call":
                 await self.handle_call(args)
             elif cmd in self.config.commands:
@@ -1295,6 +1347,9 @@ class OAIShellApp(App):
             "/theme <name>", "Change color theme (dark, light, dark-high-contrast)"
         )
         table.add_row("/call <op_id>", "Call a raw API operation")
+        table.add_row("/auth set <token>", "Set and persist a bearer token")
+        table.add_row("/auth status", "Show current authentication status")
+        table.add_row("/auth clear", "Remove bearer token from engine and state")
         table.add_row("/exit", "Exit the shell")
 
         output_log.write(table)
@@ -1383,6 +1438,66 @@ class OAIShellApp(App):
                 "[dim]Available: set, get, list, delete/rm, clear, ui[/dim]"
             )
 
+    async def handle_auth_command(self, args: List[str]):
+        """Handle /auth command with subcommands.
+
+        Subcommands:
+            set <token>  – Set and persist a bearer token.
+            status       – Show current token status (masked).
+            clear        – Remove the token from the engine and state.
+        """
+        output_log = self.query_one("#output_log", RichLog)
+
+        if not args:
+            output_log.write(
+                "[yellow]Usage:[/yellow] /auth <set|status|clear>\n"
+                "[dim]  /auth set <token>   – Set bearer token\n"
+                "  /auth status        – Show token status\n"
+                "  /auth clear         – Remove token[/dim]"
+            )
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "set":
+            if len(args) < 2:
+                output_log.write("[red]Usage:[/red] /auth set <token>")
+                return
+            token = args[1]
+            self.engine.set_token(token)
+            # Persist to state under the canonical key
+            self.state.update(access_token=token)
+            self._update_auth_status()
+            masked = self._mask_token(token)
+            output_log.write(
+                f"[green]Bearer token set:[/green] {masked}"
+            )
+
+        elif subcommand == "status":
+            if self.engine.token:
+                masked = self._mask_token(self.engine.token)
+                output_log.write(
+                    f"[green]Authenticated[/green] – token: {masked}"
+                )
+            else:
+                output_log.write("[yellow]Not authenticated[/yellow] – no bearer token set")
+
+        elif subcommand == "clear":
+            self.engine.set_token(None)
+            # Remove all known token keys from state
+            for key in TOKEN_KEYS:
+                if key in self.state.data:
+                    del self.state.data[key]
+            self.state.save()
+            self._update_auth_status()
+            output_log.write("[green]Bearer token cleared[/green]")
+
+        else:
+            output_log.write(
+                f"[yellow]Unknown auth subcommand: {subcommand}[/yellow]\n"
+                "[dim]Available: set, status, clear[/dim]"
+            )
+
     def _parse_value(self, value_str: str) -> Any:
         """Parse a string value into appropriate type."""
         value_str = value_str.strip()
@@ -1445,6 +1560,11 @@ class OAIShellApp(App):
 
         # Update state
         self.state.update(**{key: value})
+
+        # If a token key was set, sync to engine and refresh auth status
+        if key in TOKEN_KEYS and isinstance(value, str):
+            self.engine.set_token(value)
+            self._update_auth_status()
 
         # Display confirmation
         value_display = (
@@ -1737,6 +1857,14 @@ class OAIShellApp(App):
                                 output_log.write(
                                     f"[dim]State updated: {state_key}[/dim]"
                                 )
+
+                    # Reactively sync bearer token if a token key was saved
+                    if not self.engine.token or any(
+                        k in cmd_conf.after_call.get("save_to_state", {})
+                        for k in TOKEN_KEYS
+                    ):
+                        self._sync_token_from_state()
+                        self._update_auth_status()
 
         except EngineError as e:
             output_log.write(f"[red]API Error:[/red] {e}")

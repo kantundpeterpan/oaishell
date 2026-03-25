@@ -11,6 +11,7 @@ def test_autocomplete_logic():
     # Mocking Engine and Config
     engine = MagicMock(spec=OpenAIEngine)
     engine.base_url = "http://test"
+    engine.token = None
     engine.operations = {
         "get_user": {"path": "/users/{id}", "method": "GET"},
         "create_item": {"path": "/items", "method": "POST"}
@@ -49,20 +50,28 @@ def test_autocomplete_logic():
     mock_target = MagicMock()
     mock_target.value = "/call get_user --i"
     mock_target.cursor_position = 18
-    # Override property to avoid screen query
+    # Override property to avoid screen query – save original for cleanup
+    original_target_descriptor = type(ac).__dict__.get("target")
     type(ac).target = property(lambda self: mock_target)
-    
-    ac.apply_completion("--id", state)
-    print(f"Target value after completion: {repr(mock_target.value)}")
-    assert mock_target.value == "/call get_user --id"
-    assert mock_target.cursor_position == 19 # After '--id'
 
-    # 4. Test Completion in the middle
-    # Initial: "/call get_u --id 123" (cursor at 11, after 'u')
-    state = TargetState("/call get_u --id 123", 11)
-    ac.apply_completion("get_user", state)
-    print(f"Target value after middle completion: {repr(mock_target.value)}")
-    assert mock_target.value == "/call get_user --id 123"
+    try:
+        ac.apply_completion("--id", state)
+        print(f"Target value after completion: {repr(mock_target.value)}")
+        assert mock_target.value == "/call get_user --id"
+        assert mock_target.cursor_position == 19 # After '--id'
+
+        # 4. Test Completion in the middle
+        # Initial: "/call get_u --id 123" (cursor at 11, after 'u')
+        state = TargetState("/call get_u --id 123", 11)
+        ac.apply_completion("get_user", state)
+        print(f"Target value after middle completion: {repr(mock_target.value)}")
+        assert mock_target.value == "/call get_user --id 123"
+    finally:
+        # Restore the original property so this test doesn't pollute others
+        if original_target_descriptor is not None:
+            type(ac).target = original_target_descriptor
+        else:
+            del type(ac).target
 
     print("Autocomplete scope and insertion tests passed!")
 
