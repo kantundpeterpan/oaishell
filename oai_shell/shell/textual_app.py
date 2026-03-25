@@ -1,7 +1,9 @@
 """Textual TUI application for OAI-Shell."""
 
+import asyncio
 import json
 import shlex
+import time
 from typing import Dict, Any, List, Optional, Tuple
 from textual.app import App, ComposeResult
 from textual.widgets import (
@@ -1610,8 +1612,9 @@ class OAIShellApp(App):
         debug: bool = False,
         cmd_conf=None,
     ):
-        """Execute an API call."""
+        """Execute an API call asynchronously without blocking the UI."""
         output_log = self.query_one("#output_log", RichLog)
+        input_widget = self.query_one("#command_input", Input)
 
         try:
             payload, autofilled = self.assembler.assemble(op_id, cli_params)
@@ -1644,14 +1647,31 @@ class OAIShellApp(App):
                             )
                             return
 
+            # Disable input and show waiting indicator
+            input_widget.disabled = True
+            input_widget.placeholder = f"⏳ Waiting for {op_id}..."
+            start_time = time.monotonic()
+            output_log.write(f"[dim]⏳ Sending request: {op_id}...[/dim]")
+
             if stream:
-                with self.engine.call(op_id, stream=True, **payload) as resp:
-                    output_log.write("[bold blue]Streaming Response:[/bold blue]")
-                    for line in resp.iter_lines():
-                        if line:
-                            output_log.write(line)
+                output_log.write("[bold blue]Streaming Response:[/bold blue]")
+
+                def _do_stream():
+                    with self.engine.call(op_id, stream=True, **payload) as resp:
+                        for line in resp.iter_lines():
+                            if line:
+                                self.call_from_thread(output_log.write, line)
+
+                await asyncio.to_thread(_do_stream)
+                elapsed = time.monotonic() - start_time
+                output_log.write(
+                    f"[dim]Stream complete ({elapsed:.2f}s)[/dim]"
+                )
             else:
-                resp = self.engine.call(op_id, **payload)
+                resp = await asyncio.to_thread(
+                    self.engine.call, op_id, **payload
+                )
+                elapsed = time.monotonic() - start_time
                 data = resp.json()
 
                 # Render response
@@ -1660,7 +1680,9 @@ class OAIShellApp(App):
                 else:
                     # Default rendering
                     display_data = data
-                    title = "[bold blue]Response[/bold blue]"
+                    title = (
+                        f"[bold blue]Response[/bold blue] [dim]({elapsed:.2f}s)[/dim]"
+                    )
 
                     if cmd_conf and cmd_conf.default_response_field:
                         resolved = SchemaPathResolver.resolve_data(
@@ -1668,7 +1690,10 @@ class OAIShellApp(App):
                         )
                         if resolved is not None:
                             display_data = resolved
-                            title = f"[bold blue]Response: {cmd_conf.default_response_field}[/bold blue]"
+                            title = (
+                                f"[bold blue]Response: {cmd_conf.default_response_field}[/bold blue] "
+                                f"[dim]({elapsed:.2f}s)[/dim]"
+                            )
                         else:
                             output_log.write(
                                 f"[yellow]Warning: Field '{cmd_conf.default_response_field}' "
@@ -1717,6 +1742,13 @@ class OAIShellApp(App):
             output_log.write(f"[red]API Error:[/red] {e}")
         except Exception as e:
             output_log.write(f"[red]Error:[/red] {e}")
+        finally:
+            # Always re-enable input and restore placeholder
+            input_widget.disabled = False
+            input_widget.placeholder = (
+                "Enter command (e.g., /help, /exit, /state, /operations, /call ...)"
+            )
+            input_widget.focus()
 
     def _render_formatted_response(self, data: Any, formatting, debug: bool = False):
         """Render response with custom formatting."""
